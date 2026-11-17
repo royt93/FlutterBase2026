@@ -228,6 +228,21 @@ class AdFlightRecorder {
   final List<FlightRecorderEntry> _entries = [];
   String _lastHash = '';
 
+  // Erasure fence: [_gen] changes on every clear()/SDK erasure, so work that
+  // captured an older value (queued hash, stale debounce) cannot append.
+  int _gen = 0;
+  int _epoch = AdPreferences.flightEpoch;
+
+  void _sync() {
+    if (_epoch == AdPreferences.flightEpoch) return;
+    _epoch = AdPreferences.flightEpoch;
+    _entries.clear();
+    _lastHash = '';
+    _gen++;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+  }
+
   // T233 — every real call site (Banner/MREC visibility, click) fires
   // `record()` via `unawaited(...)`, so two calls can be in flight at once.
   // `record()`'s body reads `_lastHash` then `await`s a real async hash
@@ -241,7 +256,10 @@ class AdFlightRecorder {
   Future<void> _writeChain = Future.value();
 
   /// Read-only view, oldest first.
-  List<FlightRecorderEntry> get entries => List.unmodifiable(_entries);
+  List<FlightRecorderEntry> get entries {
+    _sync();
+    return List.unmodifiable(_entries);
+  }
 
   // ─── Persistence (T231 — same debounced pattern as BypassAuditTrail/T155,
   // so evidence survives a cold start, not just the process that recorded
@@ -291,9 +309,13 @@ class AdFlightRecorder {
   }) {
     // Enqueue BOTH records onto the existing chain in one call, so nothing
     // can interleave between them.
+    _sync();
+    if (AdPreferences.flightErasing) return Future<void>.value();
+    final gen = _gen;
     final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
     final result = _writeChain.then((_) async {
       await _doRecord(
+        gen: gen,
         label: label1,
         slotType: slotType,
         placement: placement,
@@ -308,6 +330,7 @@ class AdFlightRecorder {
         timestampMs: ts,
       );
       await _doRecord(
+        gen: gen,
         label: label2,
         slotType: slotType,
         placement: placement,
@@ -333,9 +356,11 @@ class AdFlightRecorder {
   /// call again — the disk load only ever happens once per process, same
   /// guard shape as `BypassAuditTrail.attach`.
   void attach(AdPreferences prefs) {
+    _sync();
     _prefs = prefs;
     if (_loaded) return;
     _loaded = true;
+    if (AdPreferences.flightErasing) return; // cached raw may be pre-erasure
     final before = _entries.length;
     _load();
     final loaded = _entries.length - before;
@@ -380,7 +405,8 @@ class AdFlightRecorder {
   }
 
   Future<void> _persistNow() async {
-    if (_disposed) return; // T235 — see dispose()'s doc comment.
+    _sync();
+    if (_disposed || AdPreferences.flightErasing) return; // T235 + erasure.
     final bundle = FlightRecorderBundle(
       entries: entries,
       generatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -391,7 +417,7 @@ class AdFlightRecorder {
   /// Forces an immediate write, skipping any pending debounce window — same
   /// contract as `AdEventLog.flush`. No-ops once [dispose]d.
   Future<void> flush() async {
-    if (_disposed) return;
+    if (_disposed || AdPreferences.flightErasing) return;
     _debounceTimer?.cancel();
     _debounceTimer = null;
     _persistChain = _persistChain.then((_) => _persistNow());
@@ -440,7 +466,11 @@ class AdFlightRecorder {
     bool touchActive = false,
     int? timestampMs,
   }) {
+    _sync();
+    if (AdPreferences.flightErasing) return Future<void>.value();
+    final gen = _gen;
     final result = _writeChain.then((_) => _doRecord(
+          gen: gen,
           label: label,
           slotType: slotType,
           placement: placement,
@@ -459,6 +489,7 @@ class AdFlightRecorder {
   }
 
   Future<void> _doRecord({
+    required int gen,
     required String label,
     required String slotType,
     required String placement,
@@ -472,7 +503,8 @@ class AdFlightRecorder {
     required bool touchActive,
     required int? timestampMs,
   }) async {
-    if (_disposed) return;
+    _sync();
+    if (_disposed || gen != _gen || AdPreferences.flightErasing) return;
     try {
       final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
       final previousHash = _lastHash;
@@ -496,7 +528,8 @@ class AdFlightRecorder {
         interactionDurationMs: interactionDurationMs,
       );
       final hash = await _hashOf(payload);
-      if (_disposed) return;
+      _sync();
+      if (_disposed || gen != _gen || AdPreferences.flightErasing) return;
       _entries.add(FlightRecorderEntry(
         timestampMs: ts,
         label: label,
@@ -546,6 +579,7 @@ class AdFlightRecorder {
   void clear() {
     _entries.clear();
     _lastHash = '';
+    _gen++;
   }
 }
 

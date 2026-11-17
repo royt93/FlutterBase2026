@@ -1006,8 +1006,7 @@ class AdManager with WidgetsBindingObserver {
     if (identical(previous, recorder)) return;
     _flightRecorder = recorder;
     if (previous != null) _retireFlightRecorder(previous);
-    // Covers the "enabled after initialize() already ran" ordering too —
-    // the `initialize()` call site above only covers "enabled before init".
+    // Also covers "enabled after initialize()" (call site above: before).
     final prefs = AdPreferences.instanceOrNull;
     if (prefs != null) recorder.attach(prefs);
   }
@@ -1212,10 +1211,13 @@ class AdManager with WidgetsBindingObserver {
     AdFlightRecorder recorder,
     Future<void> Function(String? tcf) write,
   ) {
-    if (recorder.isDisposed) return Future<void>.value();
+    if (recorder.isDisposed || AdPreferences.flightErasing) {
+      return Future<void>.value();
+    }
+    final epoch = AdPreferences.flightEpoch;
     final future = () async {
       final tcf = await IabStorage.read(IabStorage.keyTcfString);
-      if (recorder.isDisposed) return;
+      if (recorder.isDisposed || epoch != AdPreferences.flightEpoch) return;
       await write(tcf);
     }();
     final previous =
@@ -1265,15 +1267,18 @@ class AdManager with WidgetsBindingObserver {
     required AdPlacement placement,
   }) {
     final recorder = _flightRecorder;
-    if (recorder == null) return Future<void>.value();
+    if (recorder == null || AdPreferences.flightErasing) {
+      return Future<void>.value();
+    }
+    final epoch = AdPreferences.flightEpoch;
     final future = () async {
       final providerTag = _adapter?.tag ?? '[SDK]';
       final tcf = await IabStorage.read(IabStorage.keyTcfString);
-      // The recorder could have been disabled/replaced while the read above
-      // suspended — re-check identity (not just null) and disposal, or this
-      // would silently write into a disposed, orphaned recorder that
-      // `record()`'s own `_disposed` guard then drops for free.
-      if (!identical(_flightRecorder, recorder) || recorder.isDisposed) {
+      // Disabled/replaced/erased while the read suspended: re-check, else
+      // we would write into an orphaned recorder or accept pre-erasure work.
+      if (!identical(_flightRecorder, recorder) ||
+          recorder.isDisposed ||
+          epoch != AdPreferences.flightEpoch) {
         return;
       }
       // T236 audit fix (Finding 3) — write the pair atomically using the
@@ -1656,6 +1661,17 @@ class AdManager with WidgetsBindingObserver {
           'confirmedEntitlementErasure: true — this permanently deletes '
           'VIP entitlements a user may have paid for.');
     }
+    AdPreferences.beginFlightErasure();
+    try {
+      await _eraseSdkData(scope, confirmedEntitlementErasure,
+          purgeConsentProvenanceJournal);
+    } finally {
+      AdPreferences.endFlightErasure();
+    }
+  }
+
+  Future<void> _eraseSdkData(SdkDataErasureScope scope,
+      bool confirmedEntitlementErasure, bool purgeConsentProvenanceJournal) async {
     final prefs = await AdPreferences.getInstance();
     await prefs.clearSdkData(
       scope: scope,

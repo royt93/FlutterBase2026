@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (Flight Recorder erasure):** `AdManager.clearSdkData()` could leave erased evidence recoverable: an already-issued flight-recorder write was not ordered against the key removal, a hash or IAB read in flight could append after erasure, and a replacement recorder could reload the pre-erasure copy. Writes and removal of the flight-recorder key now share one queue, erasure waits for writes already issued, and events arriving **while** erasure runs are dropped (recording resumes once `clearSdkData()` completes). Stale references to the old recorder see an empty log. No public API change. Android's own SharedPreferences queue was already serial; this closes the SDK-level ordering gap, not an observed Android reorder. Only the Flight Recorder key is covered.
+
 ## [3.7.3] - 2026-11-17
 
 - **Fixed (AdMob fullscreen):** A `show()` that outlived its watchdog (10s show-confirm for Interstitial / Rewarded Interstitial, 90s hard cap for App Open) and only then threw no longer runs its catch block against the next cycle. Previously it could drop a live `showing` slot into cooldown, letting another fullscreen ad stack, and resolve the newer caller with `false`. Rewarded already had this guard. The same late throw is also ignored after `dispose()`. App Open now identifies a show by a per-call sequence number rather than comparing callbacks, so a host reusing one callback object is covered.

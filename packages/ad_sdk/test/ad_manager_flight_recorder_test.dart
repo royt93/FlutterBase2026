@@ -4,9 +4,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/core/iab_storage.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -273,6 +275,175 @@ void main() {
               'do for their own in-memory state');
     });
 
+    test('an in-flight snapshot cannot restore entries after SDK erasure',
+        () async {
+      final previousStore = SharedPreferencesStorePlatform.instance;
+      final store = _GatedFlightStore();
+      SharedPreferencesStorePlatform.instance = store;
+      SharedPreferences.resetStatic();
+      AdPreferences.resetForTest();
+      addTearDown(() {
+        SharedPreferencesStorePlatform.instance = previousStore;
+        SharedPreferences.resetStatic();
+        AdPreferences.resetForTest();
+      });
+      final prefs = await AdPreferences.getInstance();
+      final recorder = AdFlightRecorder()..attach(prefs);
+      AdManager().enableFlightRecorder(recorder);
+      await recorder.record(
+        label: 'before-erasure',
+        slotType: 'banner',
+        placement: 'home',
+        providerTag: '[AdMob]',
+      );
+      final pendingWrite = recorder.flush();
+      await store.writeStarted.future;
+
+      var clearDone = false;
+      final clearing = AdManager().clearSdkData().whenComplete(() {
+        clearDone = true;
+      });
+      try {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(clearDone, isFalse,
+            reason: 'erasure must wait for the already-issued write');
+      } finally {
+        store.releaseWrite.complete();
+      }
+      await pendingWrite;
+      await clearing;
+      expect(recorder.entries, isEmpty);
+
+      SharedPreferences.resetStatic();
+      AdPreferences.resetForTest();
+      final reloadedPrefs = await AdPreferences.getInstance();
+      final reloaded = AdFlightRecorder()..attach(reloadedPrefs);
+      addTearDown(reloaded.dispose);
+      expect(reloaded.entries, isEmpty,
+          reason: 'a snapshot captured before erasure must not return on reload');
+    });
+
+    Future<void> rec(AdFlightRecorder r, String label) => r.record(
+          label: label,
+          slotType: 'banner',
+          placement: 'home',
+          providerTag: '[AdMob]',
+        );
+
+    test('events during erasure are dropped; later events persist fresh',
+        () async {
+      final prefs = await AdPreferences.getInstance();
+      final recorder = AdFlightRecorder()..attach(prefs);
+      AdManager().enableFlightRecorder(recorder);
+      await rec(recorder, 'old');
+      final clearing = AdManager().clearSdkData();
+      await rec(recorder, 'during-erasure');
+      await AdManager().recordFlightRecorderEvent(label: 'manager-during');
+      await recorder.flush();
+      await clearing;
+      expect(recorder.entries, isEmpty);
+
+      await rec(recorder, 'after');
+      await recorder.flush();
+      final persisted =
+          FlightRecorderBundle.fromJsonString(prefs.getFlightRecorderRaw()!);
+      expect(persisted.entries.map((e) => e.label), ['after']);
+      expect(persisted.entries.single.previousHash, '');
+    });
+
+    test('a hash already in flight when erasure starts cannot append',
+        () async {
+      final prefs = await AdPreferences.getInstance();
+      final recorder = AdFlightRecorder()..attach(prefs);
+      final pending = rec(recorder, 'in-flight');
+      final clearing = AdManager().clearSdkData();
+      await pending;
+      await clearing;
+      expect(recorder.entries, isEmpty);
+      expect(prefs.getFlightRecorderRaw(), isNull);
+    });
+
+    test('a widget write whose IAB read crosses erasure is dropped', () async {
+      final prefs = await AdPreferences.getInstance();
+      final recorder = AdFlightRecorder()..attach(prefs);
+      AdManager().enableFlightRecorder(recorder);
+      final gate = Completer<SharedPreferencesAsync?>();
+      IabStorage.debugResetForTest();
+      IabStorage.debugOpenOverride = () => gate.future;
+      addTearDown(() {
+        IabStorage.debugOpenOverride = null;
+        IabStorage.debugResetForTest();
+      });
+
+      final pending =
+          AdManager().recordFlightRecorderEvent(label: 'pre-erasure');
+      await AdManager().clearSdkData();
+      gate.complete(null);
+      await pending;
+      await recorder.flush();
+      expect(recorder.entries, isEmpty,
+          reason: 'pre-erasure work must not be accepted after reopening');
+      final raw = prefs.getFlightRecorderRaw();
+      expect(
+          raw == null || FlightRecorderBundle.fromJsonString(raw).entries.isEmpty,
+          isTrue);
+    });
+
+    test('a direct clear() fences a queued record without any SDK erasure',
+        () async {
+      final recorder = AdFlightRecorder();
+      final pending = rec(recorder, 'queued');
+      recorder.clear();
+      await pending;
+      expect(recorder.entries, isEmpty);
+      await rec(recorder, 'fresh');
+      expect(recorder.entries.single.previousHash, '');
+    });
+
+    test('a retired recorder reference cannot resurrect erased entries',
+        () async {
+      final prefs = await AdPreferences.getInstance();
+      final old = AdFlightRecorder()..attach(prefs);
+      AdManager().enableFlightRecorder(old);
+      await rec(old, 'old');
+      await old.flush();
+      AdManager().enableFlightRecorder(AdFlightRecorder());
+      await AdManager().clearSdkData();
+      expect(old.entries, isEmpty);
+      expect(prefs.getFlightRecorderRaw(), isNull);
+    });
+
+    test('a replacement recorder attached during erasure skips stale disk',
+        () async {
+      final prefs = await AdPreferences.getInstance();
+      final seed = AdFlightRecorder()..attach(prefs);
+      await rec(seed, 'seed');
+      await seed.flush();
+      final clearing = AdManager().clearSdkData();
+      final replacement = AdFlightRecorder()..attach(prefs);
+      await clearing;
+      expect(replacement.entries, isEmpty);
+      expect(prefs.getFlightRecorderRaw(), isNull);
+    });
+
+    test('overlapping erasures keep the gate shut until the last finishes',
+        () async {
+      final first = AdManager().clearSdkData();
+      final second = AdManager().clearSdkData();
+      await first;
+      expect(AdPreferences.flightErasing, isTrue);
+      await second;
+      expect(AdPreferences.flightErasing, isFalse);
+    });
+
+    test('an erasure that throws still reopens the gate', () async {
+      await expectLater(
+          AdManager().clearSdkData(
+              scope: SdkDataErasureScope.allIncludingEntitlements),
+          throwsArgumentError);
+      expect(AdPreferences.flightErasing, isFalse);
+    });
+
     test('is a no-op when the flight recorder was never enabled', () async {
       await AdManager().clearSdkData();
       expect(AdManager().flightRecorder, isNull);
@@ -347,6 +518,23 @@ void main() {
               'silently dropping it at the _disposed guard');
     });
   });
+}
+
+/// Holds the first flight-key write open so a test controls ordering.
+class _GatedFlightStore extends InMemorySharedPreferencesStore {
+  _GatedFlightStore() : super.empty();
+
+  final writeStarted = Completer<void>();
+  final releaseWrite = Completer<void>();
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    if (key == 'flutter.ad_sdk_flight_recorder_v1' && !writeStarted.isCompleted) {
+      writeStarted.complete();
+      await releaseWrite.future;
+    }
+    return super.setValue(valueType, key, value);
+  }
 }
 
 /// Lets a test deterministically pause [record] mid-flight (after

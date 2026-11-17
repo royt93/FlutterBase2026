@@ -45,17 +45,10 @@ class AdPreferences {
   static AdPreferences? _instance;
   SharedPreferences? _prefs;
 
-  /// Round-30 audit (MAJOR) — `getInstance()` used to check `_instance`
-  /// only BEFORE its `await`, never re-checking after: two concurrent
-  /// callers racing before `_instance` was first set both passed the null
-  /// check and each built their own separate `AdPreferences` object (their
-  /// underlying `SharedPreferences` stayed consistent — that class's own
-  /// `getInstance()` really does dedupe — but per-instance mutable state
-  /// like `_fillRateBaselineChain`'s write-serialization queue did not, so
-  /// two "singletons" could silently drop each other's writes exactly like
-  /// the race `_fillRateBaselineChain` was added to prevent). Mirrors the
-  /// same completer-based guard `SharedPreferences.getInstance()` itself
-  /// already uses.
+  /// Round-30 audit (MAJOR) — concurrent first `getInstance()` callers each
+  /// built their own `AdPreferences`, so per-instance write queues (e.g.
+  /// `_fillRateBaselineChain`) could drop each other's writes. A completer
+  /// dedupes them, like `SharedPreferences.getInstance()` itself.
   static Completer<AdPreferences>? _initCompleter;
 
   static Future<AdPreferences> getInstance() async {
@@ -555,9 +548,29 @@ class AdPreferences {
 
   String? getFlightRecorderRaw() => _prefs?.getString(_keyFlightRecorder);
 
-  Future<void> setFlightRecorderRaw(String json) async {
-    await _prefs?.setString(_keyFlightRecorder, json);
+  // Erasure barrier: writes/removal of the flight key share one FIFO tail so
+  // a write issued before erasure can never land after the removal; epoch +
+  // depth let recorders/manager drop work that crosses or overlaps erasure.
+  static int flightEpoch = 0;
+  static int _flightErasures = 0;
+  static bool get flightErasing => _flightErasures > 0;
+  static void beginFlightErasure() {
+    _flightErasures++;
+    flightEpoch++;
   }
+
+  static void endFlightErasure() => _flightErasures--;
+
+  Future<void> _flightTail = Future.value();
+
+  Future<void> _flightQueue(Future<void> Function() op) {
+    final run = _flightTail.then((_) => op());
+    _flightTail = run.catchError((_) {});
+    return run;
+  }
+
+  Future<void> setFlightRecorderRaw(String json) =>
+      _flightQueue(() async => await _prefs?.setString(_keyFlightRecorder, json));
 
   // T137 — last `revision` a remote safety-params payload actually applied
   // successfully. Lets `AdManager` reject a stale/rolled-back payload (an
@@ -832,19 +845,13 @@ class AdPreferences {
   /// since this permanently deletes VIP entitlements a user may have
   /// paid real money for.
   ///
-  /// Only clears THIS class's own SharedPreferences-backed keys. VIP
-  /// entries also live in `flutter_secure_storage` (`VipEntriesStore`,
-  /// `RedeemedKeyLedger`, `FirstInstallGuard`) — a different storage
-  /// backend this class has no access to. `AdManager().clearSdkData(...)`
-  /// is the full orchestration; call that, not this, unless you
-  /// specifically only want the SharedPreferences half.
-  /// [purgeConsentProvenanceJournal] defaults `false` — the T202 consent
-  /// provenance journal survives EITHER [scope] unless the caller opts in
-  /// here explicitly. See `ConsentProvenanceJournal`'s class doc comment:
-  /// this is a deliberate legal-retention decision (GDPR Art. 17(3)/CCPA
-  /// "proof we asked/received consent" defense), not an oversight, and
-  /// intentionally a separate knob from [confirmedEntitlementErasure] —
-  /// that one is about VIP/paid entitlements, an unrelated concern.
+  /// Only clears THIS class's SharedPreferences keys; VIP entries also live
+  /// in `flutter_secure_storage`. Call `AdManager().clearSdkData(...)` for
+  /// the full erasure unless you only want the SharedPreferences half.
+  /// [purgeConsentProvenanceJournal] defaults `false`: the T202 consent
+  /// journal survives either [scope] unless opted in (deliberate legal
+  /// retention, see `ConsentProvenanceJournal`; separate from
+  /// [confirmedEntitlementErasure]).
   Future<void> clearSdkData({
     SdkDataErasureScope scope =
         SdkDataErasureScope.everythingExceptEntitlements,
@@ -862,8 +869,10 @@ class AdPreferences {
     if (prefs == null) return;
     final includeEntitlements =
         scope == SdkDataErasureScope.allIncludingEntitlements;
+    // Unconditional + first: a queued write is not in the key cache yet.
+    await _flightQueue(() async => await prefs.remove(_keyFlightRecorder));
     for (final key in prefs.getKeys().toList()) {
-      if (!key.startsWith('ad_sdk_')) continue;
+      if (!key.startsWith('ad_sdk_') || key == _keyFlightRecorder) continue;
       if (!includeEntitlements && _entitlementKeys.contains(key)) continue;
       if (!purgeConsentProvenanceJournal &&
           (key == _keyConsentProvenanceJournal ||
