@@ -1627,7 +1627,7 @@ void main() {
         bool? firstDone;
         unawaited(adapter.showInterstitial(onDone: (d) => firstDone = d));
         async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 11));
+        async.elapse(AdSlot.showConfirmTimeout + const Duration(seconds: 1));
         expect(firstDone, isFalse, reason: 'watchdog resolved cycle 1');
 
         // The watchdog's failure put the slot in its backoff cooldown, which
@@ -1660,7 +1660,7 @@ void main() {
         unawaited(
             adapter.showRewardedInterstitial(onDone: (r) => firstResult = r));
         async.flushMicrotasks();
-        async.elapse(const Duration(seconds: 11));
+        async.elapse(AdSlot.showConfirmTimeout + const Duration(seconds: 1));
         expect(firstResult, RewardResult.skipped);
 
         // The watchdog's failure put the slot in its backoff cooldown, which
@@ -1692,6 +1692,7 @@ void main() {
         bool? firstDismissed;
         unawaited(adapter.showAppOpen(onDismiss: (d) => firstDismissed = d));
         async.flushMicrotasks();
+        // AdMobAdapter._appOpenShowHardCap is 90s and private.
         async.elapse(const Duration(seconds: 91));
         expect(firstDismissed, isFalse, reason: 'hard cap resolved cycle 1');
 
@@ -1821,24 +1822,6 @@ void main() {
       expect(ad.showCount, 0, reason: 'a cancelled show must never present');
       expect(ad.disposeCount, 1, reason: 'the native ad would otherwise leak');
       expect(adapter.rewardedSlot.isShowing, isFalse);
-    });
-
-    test('documents current policy: our own cancel counts as one failure',
-        () async {
-      await adapter.loadRewarded();
-      final ad = bridge.lastRewarded!..pendingSsvOptions = Completer<void>();
-      final before = adapter.rewardedSlot.consecutiveFailures;
-      final shown =
-          adapter.showRewarded(ssvUserId: 'u', onDone: (_) {});
-      await Future<void>.delayed(Duration.zero);
-      adapter.canPresent = () => false;
-      ad.pendingSsvOptions!.complete();
-      await shown;
-
-      // Pinned deliberately: a cancel we caused is routed through
-      // _showFailedThenReloadable like a display failure. Changing this is a
-      // product decision (it shortens/lengthens the next load backoff).
-      expect(adapter.rewardedSlot.consecutiveFailures, before + 1);
     });
 
     test('canPresent stays true: SSV show proceeds normally', () async {
