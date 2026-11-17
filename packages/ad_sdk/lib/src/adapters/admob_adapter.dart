@@ -424,6 +424,7 @@ class AdMobAdapter
 
   // ─── Pending callbacks (one per slot at most) ─────────────────────────────
   void Function(bool dismissed)? _appOpenDismiss;
+  int _appOpenShowSeq = 0;
   void Function(bool shown)? _interstitialDone;
   void Function(RewardResult result)? _rewardedDone;
   void Function(RewardResult result)? _rewardedInterstitialDone; // T89
@@ -998,6 +999,7 @@ class AdMobAdapter
       return;
     }
     _appOpenDismiss = onDismiss;
+    final showSeq = ++_appOpenShowSeq;
     // MJ24 — armed BEFORE the show, not after. This used to sit below the
     // `await ad.show(...)`, so if the platform call itself never resolved (the
     // hang this watchdog exists to survive) the watchdog was never armed at
@@ -1100,7 +1102,7 @@ class AdMobAdapter
         },
       ));
     } catch (e, st) {
-      if (_appOpenDismiss != onDismiss) return;
+      if (showSeq != _appOpenShowSeq || _appOpenDismiss == null) return;
       SafeLogger.e(_logTag, 'showAppOpen $tag show THREW: $e\n$st');
       _appOpenShowTimeout?.cancel();
       _appOpenShowTimeout = null;
@@ -1357,24 +1359,17 @@ class AdMobAdapter
     // `showing` and no interstitial would load again for the rest of the
     // session.
     //
-    // Round-29 audit (MAJOR) — `cycleEnded` (local to this call, checked by
-    // every callback below) closes a cross-cycle race: without it, a late
-    // callback for THIS cycle landing after a *newer* cycle already started
-    // (this cycle's own watchdog timeout resolved it first, AdManager
-    // reloaded and called showInterstitial() again before this cycle's real
-    // native dismiss/fail finally arrived) would fire the newer cycle's
-    // caller with this cycle's stale outcome, and — worse — unconditionally
-    // null `_interstitialAd`/dispose it even though it had already moved on
-    // to the newer cycle's live ad. A *local* flag (not comparing
-    // `_interstitialDone` against `onDone`) is deliberate: a newer cycle can
-    // only start once `interstitialSlot` leaves `showing`, which only
-    // happens via one of these same three callbacks setting `cycleEnded`
-    // true first — so by construction no new cycle can exist while this
-    // one's `cycleEnded` is still false, and checking `_interstitialDone`
-    // instead would have wrongly flagged an unrelated *reload* (not a new
-    // show) as a hijack, since a plain reload never touches `_interstitialDone`.
-    // `identical(_interstitialAd, ad)` guards the dispose target the same
-    // way App Open's `_clearAppOpenIfSame` does.
+    // Round-29 audit (MAJOR) — `cycleEnded` (local to this call; checked by
+    // every callback below AND the catch) closes a cross-cycle race: a late
+    // callback or throw for THIS cycle, landing after its watchdog resolved it
+    // and AdManager started a *newer* cycle, would fire the newer caller with
+    // this cycle's stale outcome and null/dispose the newer cycle's live ad.
+    // A *local* flag (not comparing `_interstitialDone` with `onDone`) is
+    // deliberate: a newer cycle can only start once the slot leaves `showing`,
+    // which only happens via one of these paths setting `cycleEnded` first,
+    // and comparing `_interstitialDone` would misflag a plain reload.
+    // `identical(_interstitialAd, ad)` guards the dispose target the same way
+    // App Open's `_clearAppOpenIfSame` does.
     var cycleEnded = false;
     if (!interstitialSlot.beginShow(onShowNeverConfirmed: () {
       if (cycleEnded) return;
@@ -1451,7 +1446,7 @@ class AdMobAdapter
         },
       ));
     } catch (e, st) {
-      if (cycleEnded) return;
+      if (cycleEnded || _fullscreenDisposed) return;
       SafeLogger.e(_logTag, 'showInterstitial $tag THREW: $e\n$st');
       // MJ25 — dispose, don't just forget: `ad` is the last reference.
       if (identical(_interstitialAd, ad)) _interstitialAd = null;
@@ -1627,9 +1622,8 @@ class AdMobAdapter
     // through `fire()` too (unlike before) closes a gap where a late
     // `onUserEarnedReward` for this cycle, arriving after the watchdog had
     // already ended it via a path that bypassed `fire()`, could still
-    // consume and misdirect a newer cycle's `_rewardedDone`. Worst case
-    // otherwise: a user who genuinely finishes watching ad #2 gets no
-    // reward because ad #1's stale callback already consumed it.
+    // consume and misdirect a newer cycle's `_rewardedDone` (the user who
+    // finishes watching ad #2 would get no reward).
     var cycleEnded = false;
     final pendingSsv = ssvCustomData != null || ssvUserId != null;
 
@@ -1769,7 +1763,7 @@ class AdMobAdapter
             },
           ));
     } catch (e, st) {
-      if (cycleEnded) return; // the watchdog already resolved this cycle
+      if (cycleEnded || _fullscreenDisposed) return;
       SafeLogger.e(_logTag, 'showRewarded $tag show THREW: $e\n$st');
       // MJ25 — dispose: `ad` is the last reference.
       if (identical(_rewardedAd, ad)) _rewardedAd = null;
@@ -2050,7 +2044,7 @@ class AdMobAdapter
             },
           ));
     } catch (e, st) {
-      if (cycleEnded) return;
+      if (cycleEnded || _fullscreenDisposed) return;
       SafeLogger.e(
           _logTag, 'showRewardedInterstitial $tag show THREW: $e\n$st');
       // MJ25 — dispose: `ad` is the last reference.

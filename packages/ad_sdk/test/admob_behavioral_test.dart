@@ -324,6 +324,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late FakeGmaBridge bridge;
+  var sharedCalls = 0;
   late AdMobAdapter adapter;
 
   setUp(() async {
@@ -1712,6 +1713,88 @@ void main() {
         expect(secondDismissed, isNull);
         expect(adapter.appOpenSlot.consecutiveFailures, failures);
         addTearDown(() => adapter.dispose());
+      });
+    });
+  });
+
+  // Review follow-ups for the late-throw guard.
+  group('late show() throw guard: teardown and shared callbacks', () {
+    test('App Open: the SAME callback object for two shows does not defeat it',
+        () {
+      fakeAsync((async) {
+        // One tear-off reused by the host for every show; equal by `==`.
+        void shared(bool _) => sharedCalls++;
+        sharedCalls = 0;
+
+        unawaited(adapter.loadAppOpen());
+        async.flushMicrotasks();
+        final first = bridge.lastAppOpen!..hangOnShow = true;
+        unawaited(adapter.showAppOpen(onDismiss: shared));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 91));
+        expect(sharedCalls, 1, reason: 'hard cap resolved cycle 1');
+
+        adapter.appOpenSlot.reset();
+        unawaited(adapter.loadAppOpen());
+        async.flushMicrotasks();
+        unawaited(adapter.showAppOpen(onDismiss: shared));
+        async.flushMicrotasks();
+        expect(adapter.appOpenSlot.isShowing, isTrue);
+
+        first.hungShow!.completeError(PlatformException(code: 'late'));
+        async.flushMicrotasks();
+
+        expect(adapter.appOpenSlot.isShowing, isTrue,
+            reason: 'cycle 2 is live; cycle 1\'s stale throw must not end it');
+        expect(sharedCalls, 1, reason: 'cycle 2 must not be resolved');
+        addTearDown(() => adapter.dispose());
+      });
+    });
+
+    test('interstitial: a throw landing after dispose() is dropped', () {
+      fakeAsync((async) {
+        unawaited(adapter.loadInterstitial());
+        async.flushMicrotasks();
+        final ad = bridge.lastInter!..hangOnShow = true;
+        var calls = 0;
+        unawaited(adapter.showInterstitial(onDone: (_) => calls++));
+        async.flushMicrotasks();
+
+        unawaited(adapter.dispose()); // resolves the pending caller once
+        async.flushMicrotasks();
+        expect(calls, 1);
+        final failures = adapter.interstitialSlot.consecutiveFailures;
+        final disposed = ad.disposeCount;
+
+        ad.hungShow!.completeError(PlatformException(code: 'late'));
+        async.flushMicrotasks();
+
+        expect(calls, 1, reason: 'no second resolution');
+        expect(adapter.interstitialSlot.consecutiveFailures, failures);
+        expect(ad.disposeCount, disposed);
+      });
+    });
+
+    test('rewarded interstitial: a throw landing after dispose() is dropped',
+        () {
+      fakeAsync((async) {
+        unawaited(adapter.loadRewardedInterstitial());
+        async.flushMicrotasks();
+        final ad = bridge.lastRewardedInterstitial!..hangOnShow = true;
+        var calls = 0;
+        unawaited(adapter.showRewardedInterstitial(onDone: (_) => calls++));
+        async.flushMicrotasks();
+
+        unawaited(adapter.dispose());
+        async.flushMicrotasks();
+        expect(calls, 1);
+        final failures = adapter.rewardedInterstitialSlot.consecutiveFailures;
+
+        ad.hungShow!.completeError(PlatformException(code: 'late'));
+        async.flushMicrotasks();
+
+        expect(calls, 1);
+        expect(adapter.rewardedInterstitialSlot.consecutiveFailures, failures);
       });
     });
   });
