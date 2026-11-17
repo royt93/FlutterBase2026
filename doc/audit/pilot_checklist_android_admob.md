@@ -1,14 +1,34 @@
 # Checklist closed pilot — Android + AdMob (host app)
 
-- **Ngày:** 2026-11-10
-- **Áp dụng cho:** `applovin_admob_sdk` 3.7.1 (docs-only so với 3.7.0, đã publish trên pub.dev).
+- **Rà soát:** 2026-11-17
+- **Áp dụng cho:** Android + AdMob. Host phải pin đúng bản SDK đã được release owner phê duyệt; version/source metadata trong checkout không tự chứng minh bản đó đã publish hoặc host đang dùng nó.
 - **Thay thế:** mục 7 của `audit_round78_android_admob.md` (ghi pub.dev 3.6.8 và 3.7.0 draft, đã lỗi thời).
 - **Phạm vi:** Android + AdMob. iOS và AppLovin MAX **không** nằm trong checklist này.
 - **Trạng thái:** chưa có host app nào được kiểm tra; không có ad unit production nào được dùng. Checklist là điều kiện cần trước khi chạy pilot, **không** phải kết quả pilot.
 
+## Trạng thái evidence
+
+Đánh dấu từng gate theo một trong ba mức:
+
+- **Đã kiểm chứng trong repo/example:** source review, unit/widget tests hoặc Android test-ad smoke; không mặc định áp dụng cho host app.
+- **Host/publisher phải xác nhận:** cấu hình package thật, console/domain, release signing/obfuscation, policy, telemetry và rollback.
+- **Chưa có evidence:** chưa chạy trên host app thật hoặc test cần môi trường/native platform chưa có.
+
+Không đổi mục host/device sang “pass” chỉ vì SDK unit test/example smoke pass.
+
+## Ma trận trạng thái evidence (2026-11-17)
+
+| Trạng thái | Hạng mục | Bằng chứng/owner |
+|---|---|---|
+| **Đã kiểm chứng trong SDK repo** | Release test-ID guard; consent gate đến GMA bridge; example dùng Kotlin Gradle Plugin 2.3.0+ và `minSdk` 24. | Source/unit tests và example config. Không chứng minh cấu hình host. |
+| **Đã kiểm chứng bằng example/disposable app** | Android AdMob test ads, UMP EEA trên TECNO, T281 native paid event 3/3, Banner/MREC/Native smoke. | Chỉ package/test IDs/thiết bị ghi trong evidence; không phải production host. T281 fullscreen follow-up: App Open inconclusive, Interstitial shown/impression nhưng dismiss chưa xác minh. |
+| **Host/publisher phải xác nhận** | SDK source/version đã được duyệt; App ID/ad units; app-ads.txt; UMP message/privacy policy; signing/R8; trial policy; telemetry/rollback; actual host consent/ad gate. | Owner evidence từ host app/build/console. SDK repo không thể xác nhận. |
+| **Chưa có evidence** | Host closed pilot, release ad serving/config correctness, crash/ANR/fill/revenue trend trên host. | Chưa chạy host app thật; không đánh dấu pilot-ready. |
+| **Không đo được hiện tại** | T267 app-layer frame presentation trên Android. | Các phương pháp đã thử không gắn được presentation frame với Flutter SurfaceView; không đưa ra FPS pass. |
+
 ## Giới hạn của bằng chứng hiện có (đọc trước)
 
-Round 79 chỉ kiểm tra **example app** với Google test ads:
+Round 79 và các follow-up chỉ kiểm tra **example/disposable consumer app** với Google test ads:
 
 | Đã có bằng chứng | Thiết bị | Ghi chú |
 |---|---|---|
@@ -25,7 +45,7 @@ Chưa có bằng chứng: host app thật, ad unit production, consent trên thi
 
 ## A. Trước khi cài bản pilot
 
-- [ ] Dependency trỏ tới bản **đã publish** `applovin_admob_sdk 3.7.1` (pub.dev), không dùng git/path dependency chưa qua quy trình release.
+- [ ] Dependency trỏ tới bản **đã publish và được release owner duyệt** của `applovin_admob_sdk`; xác nhận source/version trong lockfile và không dùng git/path dependency chưa qua quy trình release.
 - [ ] Làm theo `doc/AD_PROMPT_FLUTTER.MD` của đúng version đang pin, bắt đầu từ mục "Start here — numbered walkthrough" (không copy cấu hình từ bản cũ).
 - [ ] Kotlin Gradle Plugin `>= 2.3.0` (cần cho `google_mobile_ads 9.2.x`); `kotlinOptions { jvmTarget }` đã chuyển sang `kotlin { compilerOptions { ... } }`.
 - [ ] `minSdk >= 24`; AdMob `APPLICATION_ID` trong manifest đúng app/publisher.
