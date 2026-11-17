@@ -436,6 +436,23 @@ void main() {
       expect(AdPreferences.flightErasing, isFalse);
     });
 
+    test('a failing flight-key removal still erases other SDK keys', () async {
+      final previous = SharedPreferencesStorePlatform.instance;
+      SharedPreferencesStorePlatform.instance = _FailingFlightRemoveStore();
+      SharedPreferences.resetStatic();
+      AdPreferences.resetForTest();
+      addTearDown(() {
+        SharedPreferencesStorePlatform.instance = previous;
+        SharedPreferences.resetStatic();
+        AdPreferences.resetForTest();
+      });
+      final fresh = await AdPreferences.getInstance();
+      await expectLater(AdManager().clearSdkData(), throwsStateError);
+      expect(fresh.getLastProviderExplorationAtMs(), isNull,
+          reason: 'one failing key must not leave the others un-erased');
+      expect(AdPreferences.flightErasing, isFalse);
+    });
+
     test('an erasure that throws still reopens the gate', () async {
       await expectLater(
           AdManager().clearSdkData(
@@ -521,6 +538,19 @@ void main() {
 }
 
 /// Holds the first flight-key write open so a test controls ordering.
+class _FailingFlightRemoveStore extends InMemorySharedPreferencesStore {
+  _FailingFlightRemoveStore()
+      : super.withData({'flutter.ad_sdk_last_provider_exploration_at_ms': 42});
+
+  @override
+  Future<bool> remove(String key) async {
+    if (key == 'flutter.ad_sdk_flight_recorder_v1') {
+      throw StateError('flight remove failed');
+    }
+    return super.remove(key);
+  }
+}
+
 class _GatedFlightStore extends InMemorySharedPreferencesStore {
   _GatedFlightStore() : super.empty();
 

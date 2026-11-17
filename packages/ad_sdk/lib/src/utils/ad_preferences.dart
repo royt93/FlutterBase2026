@@ -616,13 +616,9 @@ class AdPreferences {
     await _prefs?.setInt(_keyLastProviderExplorationAtMs, epochMs);
   }
 
-  // T136 (round 2, BLOCKER #3 in independent review) — WaterfallTuner's
-  // rolling per-(provider,format,placement) samples, serialized as raw
-  // JSON so they survive a destroy()+initialize() cycle (a real app
-  // process restart included) — without this, a session-alternate
-  // exploration's data was thrown away the moment that session ended,
-  // making cross-session accumulation impossible regardless of how many
-  // sessions explored.
+  // T136 (round 2) — WaterfallTuner's rolling per-(provider,format,placement)
+  // samples as raw JSON, so they survive destroy()+initialize() and process
+  // restarts; without it cross-session exploration could never accumulate.
   static const String _keyWaterfallTunerState = 'ad_sdk_waterfall_tuner_state';
 
   String? getWaterfallTunerStateRaw() =>
@@ -870,7 +866,14 @@ class AdPreferences {
     final includeEntitlements =
         scope == SdkDataErasureScope.allIncludingEntitlements;
     // Unconditional + first: a queued write is not in the key cache yet.
-    await _flightQueue(() async => await prefs.remove(_keyFlightRecorder));
+    Object? flightError;
+    StackTrace? flightStack;
+    try {
+      await _flightQueue(() async => await prefs.remove(_keyFlightRecorder));
+    } catch (e, st) {
+      flightError = e; // still erase the other keys, then rethrow
+      flightStack = st;
+    }
     for (final key in prefs.getKeys().toList()) {
       if (!key.startsWith('ad_sdk_') || key == _keyFlightRecorder) continue;
       if (!includeEntitlements && _entitlementKeys.contains(key)) continue;
@@ -880,6 +883,9 @@ class AdPreferences {
         continue;
       }
       await prefs.remove(key);
+    }
+    if (flightError != null) {
+      Error.throwWithStackTrace(flightError, flightStack!);
     }
   }
 
