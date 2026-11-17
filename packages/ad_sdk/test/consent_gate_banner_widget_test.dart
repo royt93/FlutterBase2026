@@ -57,6 +57,10 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   final Map<Object, BannerListenables> bannerListenablesByKey = {};
   final List<AdConsent> applied = <AdConsent>[];
   int loadBannerCalls = 0;
+  int resumeCalls = 0;
+
+  @override
+  void onAppResumed() => resumeCalls++;
 
   @override
   AdSlot bannerSlot(Object key) =>
@@ -991,8 +995,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     // Closing the UMP form resumes the app while the write is still parked.
+    final resumesBeforeApply = adapter.resumeCalls;
     AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pump(const Duration(milliseconds: 50));
+    expect(adapter.resumeCalls, resumesBeforeApply,
+        reason: 'resume work must wait for the parked consent apply');
 
     stuckWrite.complete();
     await tester.runAsync(() => grant);
@@ -1006,6 +1013,8 @@ void main() {
     expect(adapter.loadBannerCalls, 1,
         reason: 'a consenting user must get the banner without a second '
             'background/foreground cycle');
+    expect(adapter.resumeCalls, resumesBeforeApply + 1,
+        reason: 'the deferred resume must replay exactly once');
     expect(tester.takeException(), isNull);
   });
 
