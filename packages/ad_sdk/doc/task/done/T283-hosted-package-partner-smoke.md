@@ -26,9 +26,10 @@ SDK phát hành cho partner tích hợp. Partner guide ghi nhận một app Flut
 - [x] Installed/launched on Samsung S24 Ultra `R5CX613VZBR` (SM-S928B, Android 17) using disposable application ID `com.roy.admobwrapper.t283smoke`. Logs confirm UMP `notRequired`, `initSuccess=true`, AdMob adapter init, consent applied, Banner and App Open load success. Screenshot shows Google 320x50 test banner with test-ad label. No `FATAL EXCEPTION` in captured fatal log.
 - [x] Evidence saved under `/tmp/ad-sdk-smoke-t283/`: `pubspec.lock` SHA-256 `668b19287bbcad53cd83dfc540ee03803b0a12ea01f1c900761bb202cb2cba96`; APK SHA-256 `4d4d4a79639f9c74583e6b55cfa78cb9e5f9f7bada2e50503e7b67af1109daeb`; log SHA-256 `6d88fe440ed7d2d481c8051fe94c89471e329f555af4c4337f94466710c66952`; screenshot SHA-256 `41fa549e3e203946b9216cf22709940c21fffd6490ff0d9d61e7520ba063751a`. Fatal log is empty (SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
 - [x] Smoke xác nhận Android partner integration path; không tuyên bố iOS, AppLovin, production inventory, EEA/legal setup hoặc host app thật.
-- [ ] Unit tests SDK không đổi; chạy full SDK suite nếu ticket phát hiện và dẫn tới code change. Widget test N/A nếu chỉ validation; integration device run là acceptance chính.
-- [ ] Golden N/A nếu golden/public API không đổi; interruption/network-conditioning/memory-profile/frame-jank chạy khi thay đổi có thể ảnh hưởng. Mediation chỉ chạy nếu scope có mediation; IAP thuộc host, ngoài SDK scope. Mọi N/A kèm lý do.
-- [ ] Không cài đè, clear data, hay uninstall `com.roy.admobwrapper`.
+- [x] SDK unit tests N/A: validation-only hosted consumer smoke; no SDK source changed. Consumer-local widget smoke passed as recorded above.
+- [x] SDK widget/golden N/A: no SDK widget, rendering, or public API changed.
+- [x] Interruption/network-conditioning, memory/profile, frame-jank, and mediation N/A: none were changed or claimed by this smoke. IAP remains host-owned and out of scope.
+- [x] Used disposable application ID `com.roy.admobwrapper.t283smoke`; did not install over, clear, or uninstall `com.roy.admobwrapper`.
 
 ## Kế hoạch kiểm thử
 
