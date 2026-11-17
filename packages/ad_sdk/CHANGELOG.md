@@ -16,6 +16,7 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - **Docs only:** Corrected README Quick Start to select AdMob when configured with AdMob test IDs; clarified AppLovin requires its own provider and credentials.
 - **No runtime/API changes.**
+- **Not published:** this version was prepared in git but never uploaded to pub.dev (3.7.1 stayed the latest release). Its README change ships with 3.7.3.
 
 ## [3.7.1] - 2026-11-08
 
