@@ -2,25 +2,31 @@
 
 - **Type:** Contract investigation
 - **Priority:** P3 · **Severity:** LOW
-- **Confidence:** Existing behavior is explicit; no confirmed defect or consumer requirement for durable `clear()`.
-- **Status:** no-change (2026-11-15); keep `AdFlightRecorder.clear()` RAM-only.
-- **Evidence:** `lib/src/compliance/ad_flight_recorder.dart:329-389, 391-415, 544-549`; `lib/src/core/ad_manager.dart:1646-1669`; `test/ad_flight_recorder_test.dart:39-48, 450-492`; `test/ad_manager_flight_recorder_test.dart:251-279`; `doc/AD_PROMPT_FLUTTER.MD:3514-3516`.
+- **Status:** done (direct-clear decision 2026-11-15; records consolidated and follow-up clarified 2026-11-18).
+- **Disposition:** Keep synchronous `AdFlightRecorder.clear()` RAM/hash-only. Durable privacy erasure uses `AdManager.clearSdkData()`. Reopen direct durable clear only for a concrete consumer requirement.
+- **Evidence:** `lib/src/compliance/ad_flight_recorder.dart` (`clear`, `_gen`, `_sync`, `_persistNow`); `lib/src/utils/ad_preferences.dart` flight-key FIFO; `lib/src/core/ad_manager.dart` (`clearSdkData`, `_eraseSdkData`); `test/ad_flight_recorder_test.dart`; `test/ad_manager_flight_recorder_test.dart`; `example/integration_test/t200_clear_sdk_data_test.dart`.
 
-## Findings
+## Contract and findings
 
-- `AdFlightRecorder.clear()` synchronously clears `_entries` and `_lastHash`; it does not call persistence or cancel `_debounceTimer`. This explicitly resets the in-memory chain only.
-- A pre-existing debounce timer remains active after direct `clear()`. When it fires, `_persistNow()` serializes the current entries: the empty snapshot if there was no later record, or the new post-clear entries if there was one.
-- If direct `clear()` has no pending debounce timer, persisted data remains unchanged. A new recorder attached before any later persist can therefore reload the old snapshot. That is consistent with the documented RAM-only contract, not durable erasure.
-- `AdManager.clearSdkData()` is the durable-erasure API: it clears SDK preference data first, then clears live recorder state so erased data is not restored or exposed from RAM.
-- Existing tests pin direct clear's chain-anchor reset and record-after-clear validity. Recorder tests cover persistence reload/flush; manager tests cover live-state clearing via `clearSdkData()`. No API or runtime change is justified without a concrete consumer requirement for durable clear.
-- `doc/AD_PROMPT_FLUTTER.MD` already warns that stopping collection is not privacy purge and directs consumers to the scoped erasure workflow.
+- Direct `clear()` empties entries and resets the hash anchor synchronously; it does not promise to remove persisted bytes. With no later persist, another recorder can reload the old disk snapshot. A pending debounce serializes current RAM, not a captured old entry.
+- Follow-up in published 3.7.4 added `_gen` fencing: `record()`/`recordPair()` work admitted before direct clear or SDK erasure cannot append after that boundary. Direct clear still has no async signature or durable-delete guarantee.
+- The original no-change decision concerned direct durable clear only. It must not be read as saying the later `clearSdkData()` erasure path needed no runtime change.
+- SDK erasure now establishes epoch/depth guards, orders flight-key writes/removal through one FIFO, drops events arriving during erasure and resumes recording after cleanup ends. Captured old recorder references reset on epoch change. A failing flight-key removal still allows other SDK preference keys to be erased before its error is rethrown.
+- `clearSdkData()` caller times out after 30 seconds, but timeout is **unconfirmed erasure**, not success. Cleanup continues; Flight Recorder stays paused until actual cleanup ends. A storage call that never returns keeps recording paused until restart. Late-error logs obey logger level/tag filters. This guarantee is Flight Recorder-specific, not all concurrent SDK writers or other isolates.
+- Gated-store regression established the SDK/storage-interface ordering gap. Locked Android SharedPreferences already dispatches set/remove serially; no production Android native reordering was demonstrated.
 
-## Decision
+## Acceptance / disposition
 
-No-change. Keep `AdFlightRecorder.clear()` synchronous and RAM-only; use `AdManager.clearSdkData()` for durable SDK data erasure. Reopen only if a consumer presents a concrete need for a direct durable-clear operation. Any future API change must define async completion, debounce/flush ordering, and protection against erasing records written after the clear request.
+- [x] Direct-clear callsite/contract review found no consumer requiring direct disk deletion; kept RAM/hash-only API.
+- [x] Existing recorder tests cover anchor reset, persistence reload and concurrent clear/record chain validity. Manager regression covers queued record invalidation, in-flight snapshot erasure, stale recorder reference, attach during erasure, fresh record after clear and overlapping erasures.
+- [x] Durable-erasure ordering follow-up implemented and published in 3.7.4; the direct-clear no-change conclusion is not applied to that follow-up.
+- [x] Timeout and failure tests cover caller timeout without early gate release, late cleanup failure, and cleanup draining later queued removals.
+- [x] Public signature change N/A: direct `clear()` stays synchronous and no durable-clear method was added. API golden unchanged; behavior notes are in CHANGELOG/README.
+- [x] Full SDK suite passed 2,906/2,906 after `b40ff4f` test/docs follow-up; analyze and release gate `all` passed. Test counts describe that checkout, not a permanent package total.
+- [x] Real Android scope/host-key/secure-storage smoke: T200 passed 2 tests on TECNO KJ7 in isolated `com.roy.admobwrapper.t281qa` (2026-11-18); host package untouched. This normal-storage run does not reproduce a native stalled-write/timeout race.
+- [x] Widget/golden rendering, frame/jank, memory profiling, network conditioning and mediation N/A for this record consolidation: no UI/provider/native implementation changed here. Runtime concurrency was tested in the follow-up above; IAP is host-owned.
+- [x] Synthetic fixtures only; no erased evidence/consent content introduced into task records or test logs.
 
-## Test matrix
+## Consolidation
 
-- **Unit:** existing direct-clear chain-anchor test and persistence reload/flush tests reviewed; no runtime change, so no additional test required.
-- **Widget/golden/integration/device/interruption/network/memory/profile/frame-jank/mediation:** N/A — no behavior/API change. Native persistence path unchanged. IAP is host-app scope.
-- `git diff --check` is the applicable validation for this ticket disposition.
+The root discovery record and package conclusion were merged here. Root `doc/task/done/T284-flight-recorder-clear-persisted-state.md` remains a link to this record. Historical no-change wording applies only to the direct-clear API decision; 3.7.4 erasure fixes remain separately attributable to their commits/CHANGELOG.

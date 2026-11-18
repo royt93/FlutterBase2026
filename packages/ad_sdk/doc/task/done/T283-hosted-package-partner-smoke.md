@@ -4,7 +4,7 @@
 - **Priority:** P1 · **Severity:** MEDIUM
 - **Confidence:** Evidence gap
 - **Status:** done (2026-11-15; hosted 3.7.1 partner consumer smoke passed; scope is Android + AdMob only)
-- **Evidence:** `packages/ad_sdk/doc/AD_PROMPT_FLUTTER.MD:101` (consumer Flutter 3.41.9 analyze/build done once; APK chưa cài, log không lưu); integration contract in `packages/ad_sdk/README.md`; round 79 example device evidence không phải consumer app
+- **Evidence:** Baseline trước T283: consumer Flutter 3.41.9 từng analyze/build nhưng chưa cài APK và chưa lưu log. T283 sau đó đã chạy hosted 3.7.1, install/launch/banner smoke và lưu evidence như acceptance bên dưới; guide đã cập nhật. Round 79 example device evidence không thay thế consumer app; không đổi smoke này thành 3.7.4 khi chưa chạy hosted consumer lại.
 - **Dependencies:** Flutter toolchain đáp ứng floor package đang publish; Android device; Google test App ID và test ad units
 
 ## Bối cảnh & vấn đề
