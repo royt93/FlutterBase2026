@@ -2463,8 +2463,11 @@ If storage has not finished after 30 seconds, `clearSdkData()` throws a
 `TimeoutException`. **That is not a confirmed erasure**: cleanup keeps running
 in the background, and Flight Recorder stays paused until it really ends (a
 late failure is only logged). Treat the timeout as "unconfirmed" and retry
-later rather than telling the user their data is gone. If the platform storage
-call never returns at all, recording stays paused until the app restarts.
+later rather than telling the user their data is gone. A retry queues behind
+the stalled call, so it will not help until storage recovers. If the platform
+storage call never returns at all, recording stays paused until the app
+restarts, and nothing after the stalled step is erased in the meantime.
+The late-failure log is subject to your `SafeLogger` level and tag filter.
 
 Only ever removes keys this SDK itself owns (across both
 `SharedPreferences` and `flutter_secure_storage`, where VIP entitlements

@@ -1613,6 +1613,14 @@ class AdManager with WidgetsBindingObserver {
   Future<String> exportSafeDiagnostics({int maxBytes = 65536}) =>
       diagnostics().toSafeJsonString(maxBytes: maxBytes);
 
+  Duration _erasureTimeout = const Duration(seconds: 30);
+
+  @visibleForTesting
+  set debugErasureTimeout(Duration? d) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugErasureTimeout');
+    _erasureTimeout = d ?? const Duration(seconds: 30);
+  }
+
   /// T200 — clears SDK-owned persisted data for a privacy/data-erasure
   /// request. Unlike `AdPreferences.clearAllData()` (which wipes the
   /// ENTIRE shared `SharedPreferences` instance, including any key a
@@ -1652,14 +1660,6 @@ class AdManager with WidgetsBindingObserver {
   /// Throws [TimeoutException] if storage has not finished after 30 s. That
   /// is NOT a successful erasure: cleanup keeps running and Flight Recorder
   /// stays paused until it really ends.
-  Duration _erasureTimeout = const Duration(seconds: 30);
-
-  @visibleForTesting
-  set debugErasureTimeout(Duration? d) {
-    if (_testSeamsBlocked) return _warnSeamBlocked('debugErasureTimeout');
-    _erasureTimeout = d ?? const Duration(seconds: 30);
-  }
-
   Future<void> clearSdkData({
     SdkDataErasureScope scope =
         SdkDataErasureScope.everythingExceptEntitlements,

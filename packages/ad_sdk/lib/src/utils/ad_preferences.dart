@@ -559,7 +559,9 @@ class AdPreferences {
     flightEpoch++;
   }
 
-  static void endFlightErasure() => _flightErasures--;
+  static void endFlightErasure() {
+    if (_flightErasures > 0) _flightErasures--;
+  }
 
   Future<void> _flightTail = Future.value();
 

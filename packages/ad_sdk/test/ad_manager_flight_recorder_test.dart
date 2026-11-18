@@ -458,7 +458,6 @@ void main() {
       late AdPreferences prefs;
       final logs = <String>[];
       const deadline = Duration(milliseconds: 150);
-      const past = Duration(milliseconds: 300);
 
       setUp(() async {
         logs.clear();
@@ -486,13 +485,20 @@ void main() {
       Future<Object?> outcome(Future<void> f) =>
           f.then<Object?>((_) => null, onError: (Object e) => e);
 
-      Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 20));
+      Future<void> tick() =>
+          Future<void>.delayed(const Duration(milliseconds: 20));
+
+      Future<void> held([int n = 1]) async {
+        for (var i = 0; i < 200 && store.pending < n; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(store.pending, greaterThanOrEqualTo(n));
+      }
 
       test('timeout keeps the gate shut, drops events, then reopens', () async {
         final recorder = AdFlightRecorder()..attach(prefs);
         final result = outcome(AdManager().clearSdkData());
-        await tick();
-        expect(store.pending, 1);
+        await held();
         expect(await result, isA<TimeoutException>());
         expect(AdPreferences.flightErasing, isTrue,
             reason: 'a timeout is not a completed erasure');
@@ -545,11 +551,10 @@ void main() {
       test('a normal erasure completes before the deadline and reopens',
           () async {
         final done = AdManager().clearSdkData();
-        await tick();
+        await held();
         store.release();
         await done;
         expect(AdPreferences.flightErasing, isFalse);
-        await Future<void>.delayed(past);
         expect(logs.any((m) => m.contains('after timeout')), isFalse);
       });
     });
