@@ -1,6 +1,6 @@
 # Checklist closed pilot — Android + AdMob (host app)
 
-- **Rà soát:** 2026-11-17
+- **Rà soát:** 2026-11-18
 - **Áp dụng cho:** Android + AdMob. Host phải pin đúng bản SDK đã được release owner phê duyệt; version/source metadata trong checkout không tự chứng minh bản đó đã publish hoặc host đang dùng nó.
 - **Thay thế:** mục 7 của `audit_round78_android_admob.md` (ghi pub.dev 3.6.8 và 3.7.0 draft, đã lỗi thời).
 - **Phạm vi:** Android + AdMob. iOS và AppLovin MAX **không** nằm trong checklist này.
@@ -71,6 +71,17 @@ Chưa có bằng chứng: host app thật, ad unit production, consent trên thi
 - [ ] Đưa app xuống nền rồi mở lại: App Open không chồng lên dialog; không hiện ad khi VIP/trial đang hoạt động.
 - [ ] Banner/MREC trong `IndexedStack` dùng `active:` hoặc `Visibility(maintainState: true)` (xem README).
 
+## C2. Xóa dữ liệu và timeout — host phải kiểm lại
+
+- [ ] Ghi SDK version/source từ lockfile host và build đang thử; dùng bản đã được release owner phê duyệt, không suy ra từ version trong repo.
+- [ ] Seed một key riêng của host và dữ liệu SDK tổng hợp; gọi `await AdManager().clearSdkData()`. Sau thành công, key host còn nguyên; các key SDK trong scope và Flight Recorder cũ không còn sau khởi động lại. Không dùng dữ liệu cá nhân thật làm fixture.
+- [ ] VIP và consent provenance giữ nguyên với scope mặc định. Chỉ thử xóa entitlement trong môi trường disposable có xác nhận rõ; không xóa quyền lợi khách hàng thật.
+- [ ] Host bắt `TimeoutException` sau 30 giây: hiển thị **chưa xác nhận xóa**, không báo thành công. Cleanup vẫn đang chờ/chạy; Flight Recorder bỏ event đến trong khoảng này và chỉ mở lại khi cleanup kết thúc. Nếu storage treo mãi, recording dừng tới khi app khởi động lại; retry cũng xếp sau thao tác đang kẹt.
+- [ ] Phân biệt timeout/error với success trong telemetry host, không ghi nội dung evidence/consent. Log lỗi muộn phụ thuộc level/tag filter của `SafeLogger`, không thay thế xác nhận kết quả xóa.
+- [ ] Kiểm host resume/dialog/VIP sau khi xóa và ghi lại kết quả. Lỗi storage được tạo bằng fake trong SDK tests; smoke thiết bị bình thường không chứng minh đường timeout thật.
+
+Repo evidence (2026-11-18): `t200_clear_sdk_data_test.dart` pass 2 test trên TECNO KJ7 với gói cách ly, kiểm scope/key host và secure storage thật; không phải host pilot. Bộ test recorder kiểm thứ tự write/remove và caller timeout bằng backend điều khiển được. Host vẫn phải chạy checklist trên app/build của mình.
+
 ## D. Tiêu chí dừng ngay (no‑go)
 
 Dừng pilot nếu gặp bất kỳ điều nào:
@@ -94,6 +105,20 @@ Ngưỡng cụ thể (số người, số ngày) do chủ sản phẩm chọn; �
 - Mã VIP khuyến mãi không phải giấy phép single-use toàn cầu; kích hoạt cần mạng, sau đó dùng offline.
 - Trial Android chỉ chống cài lại theo kiểu best-effort (qua Auto Backup); xoá dữ liệu entitlement có thể cấp lại trial.
 - Khôi phục backup Android có thể giữ dấu "đã dùng mã" nhưng mất grant VIP.
+
+## F2. App Open follow-up — TECNO, 2026-11-18
+
+`example/integration_test/app_open_ad_test.dart` đã chạy với test siết assertion trên bản copy cách ly `/tmp/t281-tecno-qa/example`, SDK source lib đồng nhất checkout `e773c76`, package `com.roy.admobwrapper.t281qa`, TECNO KJ7 Android 14. Hai chu kỳ đều có native display confirmation, impression, dismiss thật và callback đúng một lần; `All tests passed` sau 00:59. Không dùng `bypassSafety`; test đợi safety mở trước show thứ hai. Mỗi lần đóng đều xem screenshot và xác nhận foreground là AdActivity của package cách ly trước khi adb tap **Continue to app**; không tap creative/Install. Host `com.roy.admobwrapper` không bị thay thế/xóa; harness chỉ gỡ package cách ly.
+
+Nguyên nhân harness cũ: chờ tile App Open ngoài vùng dựng của ListView trước khi cuộn. Đổi tín hiệu Home sang tile đầu (`Banner ad`) rồi cuộn giải quyết được. Run trung gian chỉ show/dismiss một lần: lần hai bị throttle nhưng test cũ vẫn PASS; không dùng run đó làm bằng chứng hai chu kỳ. Test mới bắt buộc fill, display và dismiss ở cả hai lượt.
+
+Evidence local (không được commit; cần lưu bản sao trước khi `/tmp` bị dọn):
+
+- `/tmp/appopen-strict.log` — SHA-256 `3309e05c38fc093cd300d213056a727aa4e498ca0f40eefb70315508d5f7cf60`.
+- `/tmp/appopen-strict1-ready.png` — SHA-256 `38e87c8d9facbb6d38f66eea2abdc8afcefc09ab1bc94350cf9aeeeea2bab249`.
+- `/tmp/appopen-strict2.png` — SHA-256 `7b56cfa8958246d47e2abc415397e0191b494124e7f94c94c872fbebeed5ab5b`.
+
+Giới hạn: một máy, debug/example, Google test inventory, show trực tiếp qua public API và đóng thủ công qua adb. Không chứng minh production/release, pub.dev consumer resolution, App Open tự động khi resume/splash, iOS/AppLovin hay race callback muộn.
 
 ## G. Khoảng trống còn mở
 
