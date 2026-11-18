@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.5] - 2026-11-18
+
 - **Changed (logging/docs only):** `clearSdkData()` now logs a warning at the moment it times out (before, only the late finish or failure was logged), and its dartdoc states that a retry queues behind a stalled storage call and that a never-returning call keeps Flight Recorder paused until restart. No behavior or API change.
 
 ## [3.7.4] - 2026-11-17
