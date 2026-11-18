@@ -93,6 +93,8 @@ void main() {
       );
       expect(AdSensitiveScreen.isActive, isFalse);
       await tester.runAsync(() async {
+        // Host: Home/relaunch once to consume the intentional cold-start
+        // skip, then Home/relaunch again to exercise automatic display.
         debugPrint('T262_HOST normal_ready');
         final deadline = DateTime.now().add(const Duration(seconds: 45));
         while (!adapter.appOpenSlot.isShowing &&
@@ -108,7 +110,8 @@ void main() {
         expect(shows.any((event) => event.success), isTrue);
       });
     },
-    // Requires host ADB Home/relaunch and native test-ad dismissal.
+    // Host: sensitive_ready Home/relaunch; normal_ready Home/relaunch twice
+    // (wait for cold-start skip between them); dismiss the native test ad.
     skip: !const bool.fromEnvironment('T262_HOST_LIFECYCLE'),
   );
 }
