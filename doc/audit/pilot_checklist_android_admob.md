@@ -112,9 +112,9 @@ Ngưỡng cụ thể (số người, số ngày) do chủ sản phẩm chọn; �
 
 Nguyên nhân harness cũ: chờ tile App Open ngoài vùng dựng của ListView trước khi cuộn. Đổi tín hiệu Home sang tile đầu (`Banner ad`) rồi cuộn giải quyết được. Run trung gian chỉ show/dismiss một lần: lần hai bị throttle nhưng test cũ vẫn PASS; không dùng run đó làm bằng chứng hai chu kỳ. Test mới bắt buộc fill, display và dismiss ở cả hai lượt.
 
-Evidence đã sao chép và kiểm SHA-256 tại `doc/audit/evidence/appopen_tecno_20261118/` (local, chưa commit/push). Các đường dẫn `/tmp` bên dưới là bản gốc:
+Evidence lưu tại `doc/audit/evidence/appopen_tecno_20261118/`. Sáu log đã che đường dẫn home của máy dev (`<home>`); hash bên dưới là hash của **bản đã che** (ảnh giữ nguyên). Bản gốc chưa che nằm trong archive ngoài repo, SHA-256 `b14fdab2a884baad87b2f11bef4aa6022b50106cf78c3b32e45f8150f09452d2`. Các tên `/tmp` là tên file gốc:
 
-- `/tmp/appopen-strict.log` — SHA-256 `3309e05c38fc093cd300d213056a727aa4e498ca0f40eefb70315508d5f7cf60`.
+- `/tmp/appopen-strict.log` — SHA-256 `d4f3062125d01c4b0e00ffe480613eb7f5a914806a4ac96d10a91999637983d5`.
 - `/tmp/appopen-strict1-ready.png` — SHA-256 `38e87c8d9facbb6d38f66eea2abdc8afcefc09ab1bc94350cf9aeeeea2bab249`.
 - `/tmp/appopen-strict2.png` — SHA-256 `7b56cfa8958246d47e2abc415397e0191b494124e7f94c94c872fbebeed5ab5b`.
 
@@ -126,8 +126,8 @@ Giới hạn: một máy, debug/example, Google test inventory, show trực ti�
 
 Run đầu fail vì chỉ có một vòng resume ở màn thường, chưa tiêu thụ cold-start skip; giữ log fail để phân biệt lỗi kịch bản với lỗi SDK. Hướng dẫn test được bổ sung vòng cold-start, không tắt guard. File evidence local cùng thư mục ở trên:
 
-- `appopen-resume-t262.log` (run đầu fail) — SHA-256 `2b5a65e3f853dc41cf398edb56f9a666f541c18b21b206378b17c34568f20e97`.
-- `appopen-resume-t262-retry.log` (run pass) — SHA-256 `924406cfe00c0cbf5de619deaae0b82620670fdabcf11109f2caaae87ae5cbd7`.
+- `appopen-resume-t262.log` (run đầu fail) — SHA-256 `f13a25e4cc00482e46dbefc7e3cc8b2a36a18489b6ffcb2c6347ce6ba0cf29bb`.
+- `appopen-resume-t262-retry.log` (run pass) — SHA-256 `7144ad5a95cbaaa4a03912ffd5c0789b5c6fcfe6114986216cdec39554b8f006`.
 - `appopen-resume-t262-retry.png` — SHA-256 `a909a39c59a0b86c8d2a4c72375d32ef1438d50ca5d28ea4d26c11cb363014ed`.
 
 Bằng chứng này bổ sung một resume tự động và nhánh màn nhạy cảm trên example/debug/Google test ads, không mở rộng thành host pilot hoặc production. Nhánh dialog/VIP không nằm trong run T262; được kiểm riêng bên dưới.
@@ -138,15 +138,15 @@ Bằng chứng này bổ sung một resume tự động và nhánh màn nhạy c
 
 Kiểm test có thể đỏ: trong bản copy cách ly (không phải `lib/` của repo) gỡ cả hai cổng `_fullscreenBusyReason` ở đường resume và `showAppOpenAd`; run mutant để ad hiện đè lên dialog trên thiết bị (`AdActivity` foreground) và test fail đúng ở assertion dialog (`appOpenSlot.isReady`, dòng 96 của test, vì ad đã bị show). Run mutant một cổng (chỉ gỡ cổng ở đường resume) vẫn bị cổng thứ hai trong `showAppOpenAd` chặn (`showAppOpen skipped — a dialog/popup is on top`), rồi test dừng sớm ở bước VIP với lỗi `real VIP resume` do harness; không dùng run đó làm bằng chứng cho cổng đơn lẻ và không lưu artifact của nó. Bản copy cách ly đã khôi phục giống `lib/` repo.
 
-Evidence local cùng thư mục, chưa commit/push (run đầu `appopen-resume-guards.*` giữ làm lịch sử, không phải run cuối):
+Evidence cùng thư mục (log đã che; run đầu `appopen-resume-guards.*` giữ làm lịch sử, không phải run cuối):
 
-- `appopen-resume-guards2.log` (run cuối pass) — SHA-256 `c523c381324f8332f19168f2c3e623ded9d727b5f1570228eed263c56843980d`.
+- `appopen-resume-guards2.log` (run cuối pass) — SHA-256 `a50f7f3bbd16eb4ecec733898bf5f8d3c1068d23898a70344ec7bbb58dd020f4`.
 - `appopen-resume-guards2.png` — SHA-256 `e9253355e210762a2c9148bf0ab615dc47f02d349fd1fdb1118bb69950a25c06`.
-- `appopen-resume-guards-mutant2.log` (mutant hai cổng, fail) — SHA-256 `390953581be75ab3b9fe2d5eab4d4cd325a51315ca02af84b4be345a88e0d25b`.
+- `appopen-resume-guards-mutant2.log` (mutant hai cổng, fail) — SHA-256 `10fb46db12390946b2b44b43ffd7ba8fabb347b1114f0ad242f8e229f3143354`.
 - `appopen-mutant2.png` (ad đè lên dialog trong mutant) — SHA-256 `248457dc9e681482679bcc09f1c7bb688bb1650a6cf5bf38d9fe3b9d1ee572a6`.
-- `appopen-resume-guards.log` / `.png` (run đầu, trước khi tiêu thụ cold-start) — SHA-256 `bf3fe91fde444d0bbed2d1b6effb7c937a98e37b45de8e60ed2cb96f46fe2f69` / `da80f46341f6913b7f71e7d2e3a7ca8f7a9d5bfb2b3dbcccb5e3eba41665258b`.
+- `appopen-resume-guards.log` / `.png` (run đầu, trước khi tiêu thụ cold-start) — SHA-256 `971328ccd6ac7921a1f40a1e051b181daf28c1333f5a81141bce3999c1078c99` / `da80f46341f6913b7f71e7d2e3a7ca8f7a9d5bfb2b3dbcccb5e3eba41665258b`.
 
-Giới hạn: một máy, debug/example, Google test ads và VIP entry tổng hợp; không chứng minh production release, quyền VIP trả phí, iOS/AppLovin hoặc mọi thứ tự cạnh tranh lifecycle. Dialog được kiểm khi ad ready; VIP có thể tự giải phóng ad, nên không suy ra VIP vẫn giữ creative trong cache. Log local chứa đường dẫn home của máy dev; che trước khi chia sẻ ra ngoài.
+Giới hạn: một máy, debug/example, Google test ads và VIP entry tổng hợp; không chứng minh production release, quyền VIP trả phí, iOS/AppLovin hoặc mọi thứ tự cạnh tranh lifecycle. Dialog được kiểm khi ad ready; VIP có thể tự giải phóng ad, nên không suy ra VIP vẫn giữ creative trong cache.
 
 ## G. Khoảng trống còn mở
 

@@ -1,0 +1,123 @@
+00:00 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/t262_sensitive_real_appopen_test.dart
+Running Gradle task 'assembleDebug'...                          
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:<home>/.gradle/wrapper/dists/gradle-8.12-all/ejduaidbjup3bmmkhw3rie4zb/gradle-8.12/lib/native-platform-0.22-milestone-27.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Running Gradle task 'assembleDebug'...                             13.7s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           5.1s
+00:00 +0: loaded App Open respects sensitive screen across host-driven lifecycle
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-18T21:08:46.403
+roy93~ [AdManager] setNavigatorKey ✅
+roy93~ [AdScreen~Router] ➡️ PUSH: / (from: null) popupDepth=0
+roy93~ [UmpConsent] consent status: notRequired
+roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+roy93~ [AdManager] initialize start, provider=admob
+roy93~ [AdSafety] 🔄 init, dailyAds=0/999, suspiciousCount=0
+roy93~ [AdManager] GAID resolved (present=true)
+roy93~ [VipManager] load() entries=0 active=false
+roy93~ [AdManager] VIP active=false entries=0
+roy93~ [ConsentManager] load → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=false)
+roy93~ [ConsentManager] set → ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true)
+roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+roy93~ [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+roy93~ [AdMobAdapter] initialize [AdMob] ✅
+roy93~ [ConsentManager] applyToProviders (ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true))
+roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+roy93~ [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+roy93~ [AdManager] triggering App Open + banner/mrec preload
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+roy93~ [AdManager] markSplashInactive
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already loading/showing
+roy93~ [AdManager] 📶 connectivity watch started (connected=true)
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ✅
+T262_HOST sensitive_ready
+00:12 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/t262_sensitive_real_appopen_test.dart
+roy93~ [AdManager] lifecycle: — → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] ⚠️ ⚠️ memory pressure — inter=idle rewarded=idle appOpen=ready vip=false
+roy93~ [AdManager] lifecycle: inactive → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → paused | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdSafety] 📊 App went to background
+roy93~ [AdManager] lifecycle: paused → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready | backgroundedFor=6.9s
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=idle rewardedSlot=idle
+roy93~ [AdManager] ⏭️ App Open skipped — active route is marked as sensitive
+00:19 +0: loaded App Open respects sensitive screen across host-driven lifecycle
+T262_HOST sensitive_block_confirmed
+T262_HOST normal_ready
+00:21 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/t262_sensitive_real_appopen_test.dart
+roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → paused | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdSafety] 📊 App went to background
+roy93~ [AdManager] lifecycle: paused → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready | backgroundedFor=6.9s
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=idle rewardedSlot=idle
+roy93~ [AdSafety] 🛡️ Skipping App Open on cold start (one-shot, will allow next resume)
+roy93~ [AdManager] ⏭️ app-open on resume skipped — cold start (one-shot — next resume will pass) → triggering reload
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already fresh, reuse
+roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → paused | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdSafety] 📊 App went to background
+roy93~ [AdManager] lifecycle: paused → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready | backgroundedFor=6.9s
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=idle rewardedSlot=idle
+roy93~ [AdManager] ✅ app-open on resume — all gates passed, showing buffer + ad
+roy93~ [AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+roy93~ [AdScreen~Router] ➡️ PUSH: null (from: /) popupDepth=1
+roy93~ [AdLoadingDialog] showAdBuffer: timer done, dismissing dialog
+roy93~ [AdScreen~Router] 🗑️ REMOVE: null popupDepth=0
+roy93~ [AdLoadingDialog] showAdBuffer: dialog dismissed ✅
+roy93~ [AdLoadingDialog] showAdBuffer: calling onComplete()
+roy93~ [AdManager] ▶️ showAppOpen (bypassSafety=false, placement=splash)
+00:38 +0: loaded App Open respects sensitive screen across host-driven lifecycle
+T262_HOST showing
+00:38 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/t262_sensitive_real_appopen_test.dart
+roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=showing
+00:38 +0: loaded App Open respects sensitive screen across host-driven lifecycle
+roy93~ [AdMobAdapter] showAppOpen [AdMob] ✅ shown
+roy93~ [AdMobAdapter] showAppOpen [AdMob] 👁 impression
+00:52 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/t262_sensitive_real_appopen_test.dart
+roy93~ [AdMobAdapter] loadInterstitial [AdMob] 🔄
+roy93~ [AdMobAdapter] loadRewarded [AdMob] 🔄
+roy93~ [AdMobAdapter] loadRewardedInterstitial [AdMob] 🔄
+00:52 +0: loaded App Open respects sensitive screen across host-driven lifecycle
+roy93~ [AdMobAdapter] ⚠️ loadRewardedInterstitial [AdMob] ❌ 1
+roy93~ [AdMobAdapter] loadInterstitial [AdMob] ✅
+roy93~ [AdMobAdapter] loadRewarded [AdMob] ✅
+roy93~ [AdMobAdapter] showAppOpen [AdMob] 👋 dismissed
+roy93~ [AdManager] 🛡️ appOpen dismissed — app-open/post-dismiss guard armed
+roy93~ [AdSafety] 📊 Ad SHOWN | session=1/999 | hourly=1/999 | daily=1/999 | impressions=1
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already loading/showing
+roy93~ [AdManager] destroy() called
+roy93~ [AdMobAdapter] dispose() [AdMob] — releasing native resources
+roy93~ [AdSafety] 🔄 Session reset (persisted invalid-traffic count preserved)
+roy93~ [AdSafety] 🔄 Full reinit reset (coldStart restored)
+roy93~ [AdManager] resetGuardState: clearing stale GAID
+roy93~ [AdManager] destroy() ✅
+01:16 +1: (tearDownAll)
+01:16 +1: All tests passed!

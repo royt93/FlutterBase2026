@@ -1,0 +1,193 @@
+00:00 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart
+Running Gradle task 'assembleDebug'...                          
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by net.rubygrapefruit.platform.internal.NativeLibraryLoader in an unnamed module (file:<home>/.gradle/wrapper/dists/gradle-8.12-all/ejduaidbjup3bmmkhw3rie4zb/gradle-8.12/lib/native-platform-0.22-milestone-27.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+Running Gradle task 'assembleDebug'...                             16.7s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...           5.3s
+00:00 +0: real resume blocks App Open for dialog and VIP, then shows
+roy93~ [AdManager] 🚀 AdManager singleton CREATED — new Flutter process / cold start at 2026-11-18T21:48:46.373
+roy93~ [AdManager] setNavigatorKey ✅
+roy93~ [AdScreen~Router] ➡️ PUSH: / (from: null) popupDepth=0
+roy93~ [UmpConsent] consent status: notRequired
+roy93~ [UmpConsent] consent form not required (status=notRequired) — skip
+roy93~ [UmpConsent] ✅ done canRequestAds=true status=notRequired formShown=false
+roy93~ [AdManager] 🔐 UMP gate → canRequestAds=true (status=notRequired)
+roy93~ [AdManager] setConsent: Instance of 'AdConsent'
+roy93~ [AdManager] ⏭️ setConsent: ConsentManager not bootstrapped yet — buffering for initialize()
+roy93~ [AdManager] ⏭️ setConsent: SDK not initialised — buffering for next initialize()
+roy93~ [AdManager] initialize start, provider=admob
+roy93~ [AdSafety] 🔄 init, dailyAds=0/999, suspiciousCount=0
+roy93~ [AdManager] GAID resolved (present=true)
+roy93~ [VipManager] load() entries=0 active=false
+roy93~ [AdManager] VIP active=false entries=0
+roy93~ [ConsentManager] load → ConsentSettings(consent=false, coppa=false, ccpa=false, asked=false)
+roy93~ [ConsentManager] set → ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true)
+roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+roy93~ [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+roy93~ [AdMobAdapter] initialize [AdMob] ✅
+roy93~ [ConsentManager] applyToProviders (ConsentSettings(consent=true, coppa=false, ccpa=false, asked=true))
+roy93~ [AdConsent] AppLovin privacy applied: Instance of 'AdConsent'
+roy93~ [AdConsent] AdMob RequestConfiguration applied: Instance of 'AdConsent' (testDevices=17)
+roy93~ [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+roy93~ [AdManager] triggering App Open + banner/mrec preload
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] 🔄
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] preloadBanner [AdMob] (no-op for AdMob)
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] preloadMrec [AdMob] (no-op for AdMob)
+roy93~ [AdManager] ⏲️ retry timer started (gen=1)
+roy93~ [AdManager] markSplashInactive
+roy93~ [AdManager] isConnected read before ready, using last-known=true
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already loading/showing
+roy93~ [AdManager] 📶 connectivity watch started (connected=true)
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ✅
+RESUME_GUARD cold_start_ready
+00:10 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart
+roy93~ [AdManager] lifecycle: — → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] ⚠️ ⚠️ memory pressure — inter=idle rewarded=idle appOpen=ready vip=false
+roy93~ [AdManager] lifecycle: inactive → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → paused | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdSafety] 📊 App went to background
+roy93~ [AdManager] lifecycle: paused → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready | backgroundedFor=6.9s
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=idle rewardedSlot=idle
+roy93~ [AdSafety] 🛡️ Skipping App Open on cold start (one-shot, will allow next resume)
+roy93~ [AdManager] ⏭️ app-open on resume skipped — cold start (one-shot — next resume will pass) → triggering reload
+roy93~ [AdMobAdapter] loadAppOpen [AdMob] ⏭️ already fresh, reuse
+00:20 +0: real resume blocks App Open for dialog and VIP, then shows
+RESUME_GUARD cold_start_consumed
+roy93~ [AdScreen~Router] ➡️ PUSH: null (from: /) popupDepth=1
+RESUME_GUARD dialog_ready
+00:21 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart
+roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → paused | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdSafety] 📊 App went to background
+roy93~ [AdManager] lifecycle: paused → hidden | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: hidden → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready
+roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=ready | backgroundedFor=7.0s
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=false appOpenSlot=ready interSlot=idle rewardedSlot=idle
+roy93~ [AdManager] ✅ app-open on resume — all gates passed, showing buffer + ad
+roy93~ [AdLoadingDialog] showAdBuffer: showing dialog, bufferMs=1000
+roy93~ [AdScreen~Router] ➡️ PUSH: null (from: null) popupDepth=2
+roy93~ [AdLoadingDialog] showAdBuffer: timer done, dismissing dialog
+roy93~ [AdScreen~Router] 🗑️ REMOVE: null popupDepth=1
+roy93~ [AdLoadingDialog] showAdBuffer: dialog dismissed ✅
+roy93~ [AdLoadingDialog] showAdBuffer: calling onComplete()
+roy93~ [AdManager] ▶️ showAppOpen (bypassSafety=false, placement=splash)
+roy93~ [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=showing
+00:30 +0: real resume blocks App Open for dialog and VIP, then shows
+roy93~ [AdMobAdapter] showAppOpen [AdMob] ✅ shown
+roy93~ [AdMobAdapter] showAppOpen [AdMob] 👁 impression
+roy93~ [AdScreen~Router] ⬅️ POP: null (back to: /) popupDepth=0
+roy93~ [VipManager] addVip: added RESUME_GUARD_PROBE until 2026-11-18 21:54:17.091618
+roy93~ [AdManager] 🔒 VIP active — ad loads suppressed
+roy93~ [VipManager] active state changed: false → true
+roy93~ [VipManager] ⏲️ next VIP timer event in 149s
+RESUME_GUARD vip_ready
+00:43 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart
+roy93~ [AdManager] ⏭️ loadInterstitial skipped — VIP member
+roy93~ [AdManager] ⏭️ loadRewarded skipped — VIP member
+roy93~ [AdManager] ⏭️ loadRewardedInterstitial skipped — VIP member
+00:54 +0: real resume blocks App Open for dialog and VIP, then shows
+roy93~ [AdMobAdapter] showAppOpen [AdMob] 👋 dismissed
+roy93~ [AdManager] 🛡️ appOpen dismissed — app-open/post-dismiss guard armed
+roy93~ [AdSafety] 📊 Ad SHOWN | session=1/999 | hourly=1/999 | daily=1/999 | impressions=1
+roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+roy93~ [AdManager] ⏭️ loadAppOpen skipped — VIP member
+00:54 +0: loading /private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart
+roy93~ [AdManager] lifecycle: inactive → resumed | splash=false | vip=true | adapter=[AdMob] | inter=idle | rewarded=idle | appOpen=idle | backgroundedFor=32.4s
+roy93~ [VipManager] ⏰ VIP entry expired — purging + refreshing
+roy93~ [VipManager] ⏲️ next VIP timer event in 126s
+roy93~ [AdMobAdapter] onAppResumed [AdMob] ⏭️ skipped — gate closed
+roy93~ [AdManager] 🔍 evaluating app-open on resume — adapter=[AdMob] splash=false vip=true appOpenSlot=idle interSlot=idle rewardedSlot=idle
+roy93~ [AdManager] ⏭️ app-open on resume skipped — VIP member
+00:56 +0: real resume blocks App Open for dialog and VIP, then shows
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown while running async test code:
+Expected: true
+  Actual: <false>
+
+When the exception was thrown, this was the stack:
+#0      fail (package:matcher/src/expect/expect.dart:187:31)
+#1      _expect (package:matcher/src/expect/expect.dart:182:3)
+#2      expect (package:matcher/src/expect/expect.dart:65:3)
+#3      expect (package:flutter_test/src/widget_tester.dart:473:18)
+#4      main.<anonymous closure>.<anonymous closure> (file:///private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart:96:7)
+<asynchronous suspension>
+#5      LiveTestWidgetsFlutterBinding.runAsync (package:flutter_test/src/binding.dart:2734:14)
+<asynchronous suspension>
+#6      main.<anonymous closure> (file:///private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart:90:5)
+<asynchronous suspension>
+#7      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#8      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1682:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown while running async test code:
+Expected: empty
+  Actual: [Instance of 'AdShowEvent']
+
+When the exception was thrown, this was the stack:
+#0      fail (package:matcher/src/expect/expect.dart:187:31)
+#1      _expect (package:matcher/src/expect/expect.dart:182:3)
+#2      expect (package:matcher/src/expect/expect.dart:65:3)
+#3      expect (package:flutter_test/src/widget_tester.dart:473:18)
+#4      main.<anonymous closure>.<anonymous closure> (file:///private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart:114:7)
+<asynchronous suspension>
+#5      LiveTestWidgetsFlutterBinding.runAsync (package:flutter_test/src/binding.dart:2734:14)
+<asynchronous suspension>
+#6      main.<anonymous closure> (file:///private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart:104:5)
+<asynchronous suspension>
+#7      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#8      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1682:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+════════════════════════════════════════════════════════════════════════════════════════════════════
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: null
+  Actual: 'Multiple exceptions (2) were detected during the running of the current test, and at
+least one was unexpected.'
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart:131:5)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1682:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///private/tmp/t281-tecno-qa/example/integration_test/appopen_real_resume_guards_test.dart line 131
+The test description was:
+  real resume blocks App Open for dialog and VIP, then shows
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:56 +0 -1: real resume blocks App Open for dialog and VIP, then shows [E]
+  Test failed. See exception logs above.
+  The test description was: real resume blocks App Open for dialog and VIP, then shows
+  
+roy93~ [AdManager] destroy() called
+roy93~ [AdMobAdapter] dispose() [AdMob] — releasing native resources
+roy93~ [AdSafety] 🔄 Session reset (persisted invalid-traffic count preserved)
+roy93~ [AdSafety] 🔄 Full reinit reset (coldStart restored)
+roy93~ [AdManager] resetGuardState: clearing stale GAID
+roy93~ [AdManager] destroy() ✅
+00:56 +0 -1: (tearDownAll)
+00:57 +0 -1: Some tests failed.
