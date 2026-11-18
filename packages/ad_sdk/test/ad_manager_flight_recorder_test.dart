@@ -502,6 +502,8 @@ void main() {
         final result = outcome(AdManager().clearSdkData());
         await held();
         expect(await result, isA<TimeoutException>());
+        expect(logs.any((m) => m.contains('erasure unconfirmed after')), isTrue,
+            reason: 'the host must see a warning at the moment of timeout');
         expect(AdPreferences.flightErasing, isTrue,
             reason: 'a timeout is not a completed erasure');
         await recorder.record(

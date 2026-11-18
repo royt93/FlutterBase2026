@@ -2467,7 +2467,8 @@ later rather than telling the user their data is gone. A retry queues behind
 the stalled call, so it will not help until storage recovers. If the platform
 storage call never returns at all, recording stays paused until the app
 restarts, and nothing after the stalled step is erased in the meantime.
-The late-failure log is subject to your `SafeLogger` level and tag filter.
+The timeout warning and the late-failure log are subject to your `SafeLogger`
+level and tag filter.
 
 Only ever removes keys this SDK itself owns (across both
 `SharedPreferences` and `flutter_secure_storage`, where VIP entitlements

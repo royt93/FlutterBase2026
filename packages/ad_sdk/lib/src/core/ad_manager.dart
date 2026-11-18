@@ -1644,11 +1644,8 @@ class AdManager with WidgetsBindingObserver {
   /// caller must say so explicitly, not by accident.
   ///
   /// Deliberately does NOT touch the on-device Ed25519 compliance-signing
-  /// key (`signComplianceReport`/`signJsonPayload`'s shared key,
-  /// `compliance_signing.dart`) at either scope — it carries no personal
-  /// data (a device-generated keypair with no identifying content), and
-  /// erasing it would only cost future compliance-report/incident-bundle
-  /// exports their key continuity for no privacy benefit.
+  /// key at either scope: it holds no personal data, and erasing it would
+  /// only break key continuity of later signed exports.
   ///
   /// [purgeConsentProvenanceJournal] (T202, audit finding C) — the T202
   /// consent provenance journal is EXCLUDED from both [scope]s above by
@@ -1659,7 +1656,8 @@ class AdManager with WidgetsBindingObserver {
   ///
   /// Throws [TimeoutException] if storage has not finished after 30 s. That
   /// is NOT a successful erasure: cleanup keeps running and Flight Recorder
-  /// stays paused until it really ends.
+  /// stays paused until it really ends. A storage call that never returns
+  /// keeps it paused until restart, and a retry queues behind it.
   Future<void> clearSdkData({
     SdkDataErasureScope scope =
         SdkDataErasureScope.everythingExceptEntitlements,
@@ -1689,6 +1687,8 @@ class AdManager with WidgetsBindingObserver {
       await done.timeout(_erasureTimeout);
     } on TimeoutException {
       timedOut = true;
+      SafeLogger.w(_tag,
+          'erasure unconfirmed after $_erasureTimeout; recording stays paused');
       rethrow;
     }
   }
