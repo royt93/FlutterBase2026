@@ -453,6 +453,107 @@ void main() {
       expect(AdPreferences.flightErasing, isFalse);
     });
 
+    group('erasure timeout (caller-only)', () {
+      late _HeldRemoveStore store;
+      late AdPreferences prefs;
+      final logs = <String>[];
+      const deadline = Duration(milliseconds: 150);
+      const past = Duration(milliseconds: 300);
+
+      setUp(() async {
+        logs.clear();
+        SafeLogger.configure(onLog: (l, t, m) => logs.add(m));
+        AdManager().debugErasureTimeout = deadline;
+        final previous = SharedPreferencesStorePlatform.instance;
+        store = _HeldRemoveStore();
+        SharedPreferencesStorePlatform.instance = store;
+        SharedPreferences.resetStatic();
+        AdPreferences.resetForTest();
+        addTearDown(() async {
+          while (store.pending > 0) {
+            store.release();
+            await Future<void>.delayed(Duration.zero);
+          }
+          AdManager().debugErasureTimeout = null;
+          SafeLogger.configure();
+          SharedPreferencesStorePlatform.instance = previous;
+          SharedPreferences.resetStatic();
+          AdPreferences.resetForTest();
+        });
+        prefs = await AdPreferences.getInstance();
+      });
+
+      Future<Object?> outcome(Future<void> f) =>
+          f.then<Object?>((_) => null, onError: (Object e) => e);
+
+      Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 20));
+
+      test('timeout keeps the gate shut, drops events, then reopens', () async {
+        final recorder = AdFlightRecorder()..attach(prefs);
+        final result = outcome(AdManager().clearSdkData());
+        await tick();
+        expect(store.pending, 1);
+        expect(await result, isA<TimeoutException>());
+        expect(AdPreferences.flightErasing, isTrue,
+            reason: 'a timeout is not a completed erasure');
+        await recorder.record(
+            label: 'during',
+            slotType: 'banner',
+            placement: 'home',
+            providerTag: '[AdMob]');
+        expect(recorder.entries, isEmpty);
+
+        store.release();
+        await tick();
+        expect(AdPreferences.flightErasing, isFalse);
+        expect(logs.any((m) => m.contains('finished after timeout')), isTrue);
+        await recorder.record(
+            label: 'after',
+            slotType: 'banner',
+            placement: 'home',
+            providerTag: '[AdMob]');
+        expect(recorder.entries.map((e) => e.label), ['after']);
+      });
+
+      test('a failure after the timeout is logged, not unhandled', () async {
+        final result = outcome(AdManager().clearSdkData());
+        expect(await result, isA<TimeoutException>());
+        store.release(error: StateError('late failure'));
+        await tick();
+        expect(AdPreferences.flightErasing, isFalse);
+        expect(logs.any((m) => m.contains('failed after timeout')), isTrue);
+      });
+
+      test('overlapping erasures hold the gate until the last one ends',
+          () async {
+        final first = outcome(AdManager().clearSdkData());
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        final second = outcome(AdManager().clearSdkData());
+        expect(await first, isA<TimeoutException>());
+        expect(await second, isA<TimeoutException>());
+        expect(AdPreferences.flightErasing, isTrue);
+
+        store.release();
+        await tick();
+        expect(AdPreferences.flightErasing, isTrue,
+            reason: 'the second erasure is still queued behind the first');
+        store.release();
+        await tick();
+        expect(AdPreferences.flightErasing, isFalse);
+      });
+
+      test('a normal erasure completes before the deadline and reopens',
+          () async {
+        final done = AdManager().clearSdkData();
+        await tick();
+        store.release();
+        await done;
+        expect(AdPreferences.flightErasing, isFalse);
+        await Future<void>.delayed(past);
+        expect(logs.any((m) => m.contains('after timeout')), isFalse);
+      });
+    });
+
     test('an erasure that throws still reopens the gate', () async {
       await expectLater(
           AdManager().clearSdkData(
@@ -538,6 +639,30 @@ void main() {
 }
 
 /// Holds the first flight-key write open so a test controls ordering.
+/// Holds each flight-key remove until [release]; optionally fails it.
+class _HeldRemoveStore extends InMemorySharedPreferencesStore {
+  _HeldRemoveStore() : super.empty();
+
+  final _held = <Completer<void>>[];
+
+  int get pending => _held.length;
+
+  void release({Object? error}) {
+    final c = _held.removeAt(0);
+    error == null ? c.complete() : c.completeError(error);
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    if (key == 'flutter.ad_sdk_flight_recorder_v1') {
+      final c = Completer<void>();
+      _held.add(c);
+      await c.future;
+    }
+    return super.remove(key);
+  }
+}
+
 class _FailingFlightRemoveStore extends InMemorySharedPreferencesStore {
   _FailingFlightRemoveStore()
       : super.withData({'flutter.ad_sdk_last_provider_exploration_at_ms': 42});

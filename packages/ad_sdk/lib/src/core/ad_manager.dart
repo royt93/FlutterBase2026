@@ -1648,6 +1648,18 @@ class AdManager with WidgetsBindingObserver {
   /// frameworks permit/require keeping proof consent was asked/received
   /// even after a general erasure request). Pass `true` here to purge it
   /// explicitly, as a separate decision from [scope].
+  ///
+  /// Throws [TimeoutException] if storage has not finished after 30 s. That
+  /// is NOT a successful erasure: cleanup keeps running and Flight Recorder
+  /// stays paused until it really ends.
+  Duration _erasureTimeout = const Duration(seconds: 30);
+
+  @visibleForTesting
+  set debugErasureTimeout(Duration? d) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugErasureTimeout');
+    _erasureTimeout = d ?? const Duration(seconds: 30);
+  }
+
   Future<void> clearSdkData({
     SdkDataErasureScope scope =
         SdkDataErasureScope.everythingExceptEntitlements,
@@ -1661,12 +1673,23 @@ class AdManager with WidgetsBindingObserver {
           'confirmedEntitlementErasure: true — this permanently deletes '
           'VIP entitlements a user may have paid for.');
     }
+    // The flight-recorder gate belongs to the real erasure, not to this
+    // caller's wait: a timeout leaves cleanup running and recording paused.
     AdPreferences.beginFlightErasure();
+    final done = _eraseSdkData(
+            scope, confirmedEntitlementErasure, purgeConsentProvenanceJournal)
+        .whenComplete(AdPreferences.endFlightErasure);
+    var timedOut = false;
+    unawaited(done.then<void>((_) {
+      if (timedOut) SafeLogger.w(_tag, 'erasure finished after timeout');
+    }, onError: (Object e) {
+      if (timedOut) SafeLogger.e(_tag, 'erasure failed after timeout: $e');
+    }));
     try {
-      await _eraseSdkData(scope, confirmedEntitlementErasure,
-          purgeConsentProvenanceJournal);
-    } finally {
-      AdPreferences.endFlightErasure();
+      await done.timeout(_erasureTimeout);
+    } on TimeoutException {
+      timedOut = true;
+      rethrow;
     }
   }
 
@@ -1704,22 +1727,9 @@ class AdManager with WidgetsBindingObserver {
       } else {
         await VipManager.eraseSecureEntitlementStorage(prefs);
       }
-      // Round-49 audit fix (MAJOR) — this used to also call
-      // `FirstInstallGuard().erase()`, wiping the iOS Keychain anti-farming
-      // flag alongside the SharedPreferences one `prefs.clearSdkData` above
-      // already removes. That flag's entire purpose (see its class doc
-      // comment) is to survive exactly this kind of local-data wipe so a
-      // user can't re-grant themselves the first-install VIP trial without
-      // a real uninstall+reinstall; erasing it here let the SDK's own
-      // documented "erase my data" button (`example`'s
-      // ClearSdkDataDemoPage, required by Apple 5.1.1(v)/GDPR/CCPA) hand
-      // out the 24h trial again on every kill+reopen, no reinstall needed —
-      // same class of gap as `RedeemedKeyLedger` and
-      // `ConsentProvenanceJournal` already carve themselves out of erasure
-      // for (anti-abuse data survives an entitlement-erasure request; a
-      // real paid VIP grant above is still erased, since that's the actual
-      // "entitlement" the user has a right to remove). Deliberately NOT
-      // erasing the Keychain flag here now.
+      // Round-49 audit fix (MAJOR): do NOT erase the iOS Keychain
+      // `FirstInstallGuard` flag here. It must survive a local-data wipe so
+      // "erase my data" cannot re-grant the first-install VIP trial.
     }
   }
 

@@ -2459,6 +2459,13 @@ await AdManager().clearSdkData(
 await AdManager().clearSdkData(purgeConsentProvenanceJournal: true);
 ```
 
+If storage has not finished after 30 seconds, `clearSdkData()` throws a
+`TimeoutException`. **That is not a confirmed erasure**: cleanup keeps running
+in the background, and Flight Recorder stays paused until it really ends (a
+late failure is only logged). Treat the timeout as "unconfirmed" and retry
+later rather than telling the user their data is gone. If the platform storage
+call never returns at all, recording stays paused until the app restarts.
+
 Only ever removes keys this SDK itself owns (across both
 `SharedPreferences` and `flutter_secure_storage`, where VIP entitlements
 live) — a host app's own keys in the same storage are never touched at
