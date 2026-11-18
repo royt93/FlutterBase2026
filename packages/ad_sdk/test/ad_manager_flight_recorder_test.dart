@@ -469,10 +469,12 @@ void main() {
         SharedPreferences.resetStatic();
         AdPreferences.resetForTest();
         addTearDown(() async {
-          while (store.pending > 0) {
-            store.release();
-            await Future<void>.delayed(Duration.zero);
+          store.releaseAll();
+          for (var i = 0; i < 200 && AdPreferences.flightErasing; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 5));
           }
+          expect(AdPreferences.flightErasing, isFalse,
+              reason: 'test cleanup must drain every real erasure');
           AdManager().debugErasureTimeout = null;
           SafeLogger.configure();
           SharedPreferencesStorePlatform.instance = previous;
@@ -545,6 +547,18 @@ void main() {
             reason: 'the second erasure is still queued behind the first');
         store.release();
         await tick();
+        expect(AdPreferences.flightErasing, isFalse);
+      });
+
+      test('cleanup drains overlapping erasures including a queued remove',
+          () async {
+        final first = outcome(AdManager().clearSdkData());
+        final second = outcome(AdManager().clearSdkData());
+        await held();
+        store.releaseAll();
+        expect(await first, isNull);
+        expect(await second, isNull);
+        expect(store.pending, 0);
         expect(AdPreferences.flightErasing, isFalse);
       });
 
@@ -643,14 +657,21 @@ void main() {
   });
 }
 
-/// Holds the first flight-key write open so a test controls ordering.
 /// Holds each flight-key remove until [release]; optionally fails it.
 class _HeldRemoveStore extends InMemorySharedPreferencesStore {
   _HeldRemoveStore() : super.empty();
 
   final _held = <Completer<void>>[];
+  bool _draining = false;
 
   int get pending => _held.length;
+
+  void releaseAll() {
+    _draining = true;
+    while (_held.isNotEmpty) {
+      release();
+    }
+  }
 
   void release({Object? error}) {
     final c = _held.removeAt(0);
@@ -659,7 +680,7 @@ class _HeldRemoveStore extends InMemorySharedPreferencesStore {
 
   @override
   Future<bool> remove(String key) async {
-    if (key == 'flutter.ad_sdk_flight_recorder_v1') {
+    if (key == 'flutter.ad_sdk_flight_recorder_v1' && !_draining) {
       final c = Completer<void>();
       _held.add(c);
       await c.future;
@@ -681,6 +702,7 @@ class _FailingFlightRemoveStore extends InMemorySharedPreferencesStore {
   }
 }
 
+/// Holds the first flight-key write open so a test controls ordering.
 class _GatedFlightStore extends InMemorySharedPreferencesStore {
   _GatedFlightStore() : super.empty();
 

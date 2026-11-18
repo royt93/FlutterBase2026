@@ -15,8 +15,8 @@
 // this run. That is why the poll below uses a GENEROUS 60s timeout instead of
 // a short fixed wait.
 //
-// Ad *content*/fill is never guaranteed, so assertions are lenient about
-// whether an ad actually showed and strict about lifecycle/state/no-crash.
+// Requires filled Google test ads and a manual native close for each cycle.
+// Missing fill or display fails this test; it is not show/dismiss evidence.
 //
 // Run with:
 //   flutter test integration_test/app_open_ad_test.dart -d <device-or-sim-id>
@@ -98,15 +98,14 @@ void main() {
 
     final tile = find.text('App-open ad');
     var foundTile = false;
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < 120; i++) {
       await tester.pump(const Duration(milliseconds: 500));
-      if (tile.evaluate().isNotEmpty) {
+      if (find.text('Banner ad').evaluate().isNotEmpty) {
         foundTile = true;
         break;
       }
     }
-    expect(foundTile, isTrue,
-        reason: 'HomePage must list the App-open ad tile');
+    expect(foundTile, isTrue, reason: 'must navigate to HomePage');
 
     // Below the fold at the device's default density; scroll instead of
     // relying on a smaller `wm density`.
@@ -120,33 +119,44 @@ void main() {
     final loadButton = find.widgetWithText(FilledButton, 'Force load App Open');
     expect(loadButton, findsOneWidget);
 
-    // ── Cycle 1: load then show via AdManager() directly (AppOpenDemoPage
-    // only exposes a "Force load" button; showAppOpenAd is the SDK's public
-    // API used the same way the splash screen uses it, minus bypassSafety).
-    await tester.tap(loadButton);
-    final loaded1 = await _waitForAppOpenLoaded(tester);
-    expect(tester.takeException(), isNull);
+    for (var cycle = 1; cycle <= 2; cycle++) {
+      await tester.tap(loadButton);
+      expect(await _waitForAppOpenLoaded(tester), isTrue,
+          reason: 'cycle $cycle requires a filled test ad');
+      for (var i = 0;
+          i < 180 &&
+              !AdSafetyConfig.canShowFullscreenAdPeek(
+                      forType: AdSlotType.appOpen)
+                  .canShow;
+          i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(
+          AdSafetyConfig.canShowFullscreenAdPeek(forType: AdSlotType.appOpen)
+              .canShow,
+          isTrue,
+          reason: 'cycle $cycle must wait for the safety gate, not bypass it');
 
-    if (loaded1) {
-      AdManager().showAppOpenAd(onAdDismiss: (_) {});
-      await tester.pump(const Duration(milliseconds: 500));
-      // A human taps the close/X button on the native ad when it appears.
+      var dismissCalls = 0;
+      bool? dismissed;
+      final show = AdManager().showAppOpenAd(onAdDismiss: (value) {
+        dismissCalls++;
+        dismissed = value;
+      });
+      final slot = AdManager().adapter!.appOpenSlot;
+      for (var i = 0;
+          i < 40 && !(slot.isShowing && slot.displayConfirmed);
+          i++) {
+        await tester.pump(const Duration(milliseconds: 250));
+      }
+      expect(slot.isShowing && slot.displayConfirmed, isTrue,
+          reason: 'cycle $cycle must confirm native display');
       await _waitForNotShowing(tester);
+      await show;
+      expect(dismissed, isTrue, reason: 'cycle $cycle requires native dismiss');
+      expect(dismissCalls, 1);
+      expect(slot.isShowing, isFalse);
       expect(tester.takeException(), isNull);
     }
-
-    // ── Cycle 2 — proves no zombie/duplicate-load state lingers from cycle 1,
-    // which is exactly the race condition class fixed this session.
-    await tester.tap(loadButton);
-    final loaded2 = await _waitForAppOpenLoaded(tester);
-    expect(tester.takeException(), isNull);
-
-    if (loaded2) {
-      AdManager().showAppOpenAd(onAdDismiss: (_) {});
-      await tester.pump(const Duration(milliseconds: 500));
-      await _waitForNotShowing(tester);
-    }
-
-    expect(tester.takeException(), isNull);
   });
 }
