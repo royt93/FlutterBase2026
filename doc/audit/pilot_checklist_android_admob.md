@@ -43,6 +43,8 @@ Round 79 và các follow-up chỉ kiểm tra **example/disposable consumer app**
 
 Chưa có bằng chứng: host app thật, ad unit production, consent trên thiết bị người dùng thật, native memory, FPS/presentation (T267 đóng: không đo được bằng các cách đã thử), iOS, AppLovin. Chưa thử thêm: CRL qua CA công khai thật/mạng di động, phản hồi chậm hoặc cụt, đổi đồng hồ khi app đang chạy, key AVP2 ký bằng khóa thật của owner. (CRL qua HTTPS với CA tạm ghim chứng chỉ trên TECNO: chứng chỉ giả mạo bị từ chối, SDK giữ CRL cũ, xem `screens13/`. CRL tải qua HTTP trong mạng LAN từ server tạm đã thử trên S24U: áp dụng được, cập nhật được, và lỗi mạng thì SDK giữ CRL cũ; xem `screens12/`.) (Đã thử trên S24U, đạt: CRL còn hiệu lực sau khi khởi động lại app, redeem bị từ chối khi offline, VIP vẫn chặn quảng cáo khi offline, đồng hồ lệch -1 ngày/+2 ngày, xem `screens11/`.) (CRL cũ bị phát lại và CRL ký sai khóa đã được thử trên S24U, bị từ chối đúng, xem `screens10/`.)
 
+Bản rút gọn cho team host: `host_pilot_quickstart_android_admob.md` (cùng thư mục).
+
 ## A. Trước khi cài bản pilot
 
 - [ ] Dependency trỏ tới bản **đã publish và được release owner duyệt** của `applovin_admob_sdk`; xác nhận source/version trong lockfile và không dùng git/path dependency chưa qua quy trình release.
