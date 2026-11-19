@@ -2785,6 +2785,19 @@ class AdManager with WidgetsBindingObserver {
         : null;
   }
 
+  /// Rewarded-only presentation holds. Not [_fullscreenBusyReason]: its own
+  /// slot is already `showing`, so the mutex would block itself. A call made
+  /// with `bypassVipGuard` (watch an ad to extend VIP) skips only the VIP term.
+  String? _rewardedHold(bool bypassVip) => _isVipMember && !bypassVip
+      ? 'VIP is active'
+      : umpFormOnScreen.value
+          ? 'a consent form is on screen'
+          : customOverlayOnScreen.value
+              ? 'a custom host overlay on screen'
+              : AdScreenRouteLogger.isDialogOnTop
+                  ? 'a dialog/popup is on top'
+                  : null;
+
   String? get _fullscreenBusyReason {
     // Round-7 audit, MAJOR — checked before the adapter, because the initial
     // consent form is presented during splash while the adapter may not exist
@@ -9045,21 +9058,14 @@ class AdManager with WidgetsBindingObserver {
     // act (see show_paths_guard_test.dart); a blocked/skipped path below
     // returns before ever reading it.
     final showStopwatch = Stopwatch()..start();
-    if (ad is AdMobAdapter) ad.canPresent = () => _presentBlockedReason(ad) == null;
-    // Round-25 QC round 22 (`codex`, BLOCKER) — the consent gate at the top of
-    // this method is read BEFORE a load that can take `onDemandLoadTimeout`
-    // (15s by default). A withdrawal that lands inside that window — the user
-    // backgrounds the app, changes their answer in the CMP, comes back and the
-    // resume re-check applies it — used to be ignored: only the fullscreen
-    // mutex was re-read, so the ad was presented anyway. An impression served
-    // after the user said no is the single outcome this SDK exists to prevent.
-    //
-    // The round-22 fix put a check inside the bypass branch. The sweep that
-    // followed moved it here instead: this line is on BOTH paths through the
-    // method (the bypass one after its on-demand load, and the ordinary one
-    // after the VIP and safety awaits), it is the last statement before the
-    // act, and there is exactly one of it to keep correct.
-    final blocked = _presentBlockedReason(ad);
+    if (ad is AdMobAdapter) {
+      ad.canPresent = () =>
+          (_presentBlockedReason(ad) ?? _rewardedHold(bypassVipGuard)) == null;
+    }
+    // Round-25 QC round 22 — last check before the act, on BOTH paths: consent,
+    // VIP and overlays can change during an on-demand load or the SSV await
+    // (`canPresent` above re-runs this after SSV).
+    final blocked = _presentBlockedReason(ad) ?? _rewardedHold(bypassVipGuard);
     if (blocked != null) {
       _rewardedInFlight = false;
       final inline = ad is InlineAdVisibility ? ad as InlineAdVisibility : null;

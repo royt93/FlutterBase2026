@@ -4,12 +4,20 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:applovin_admob_sdk/src/adapters/admob_adapter.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart' as gma;
 import 'package:google_mobile_ads/src/ad_instance_manager.dart'
     show AdMessageCodec, instanceManager;
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _ActiveVip implements VipManager {
+  @override
+  bool get isActive => true;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 const config = AdConfig(
   provider: AdProvider.admob,
@@ -152,6 +160,119 @@ void main() {
     expect(results.single.shown, isTrue);
     expect(results.single.pendingServerConfirmation, isTrue);
     expect(adapter.rewardedSlot.value, AdSlotState.idle);
+  });
+
+  for (final scenario in ['vip', 'custom-overlay', 'dialog']) {
+    testWidgets('$scenario activated during SSV must block native show',
+        (tester) async {
+      final id = await load();
+      final earned = <bool>[];
+      final pending = manager.showRewardedAd(
+        onEarnedReward: earned.add,
+        ssvUserId: 'u',
+      );
+      await tester.pump();
+      expect(ids('setServerSideVerificationOptions'), [id]);
+      if (scenario == 'vip') {
+        manager.debugVipManager = _ActiveVip();
+      } else if (scenario == 'custom-overlay') {
+        markCustomOverlayOnScreen(true);
+      } else {
+        AdScreenRouteLogger().didPush(
+            RawDialogRoute<void>(pageBuilder: (_, _, _) => const SizedBox()),
+            null);
+      }
+      try {
+        ssv.complete();
+        await tester.pump();
+        await pending;
+        final nativeShows = ids('showAdWithoutView').toList();
+        if (nativeShows.isNotEmpty) await finish(id);
+        await tester.pump(const Duration(seconds: 31));
+        expect(nativeShows, isEmpty,
+            reason: '$scenario became active before native presentation');
+        expect(earned, [false]);
+      } finally {
+        manager.debugVipManager = null;
+        markCustomOverlayOnScreen(false);
+        AdScreenRouteLogger.resetState();
+      }
+    });
+  }
+
+  testWidgets('CONTROL — bypassVipGuard with VIP active still shows after SSV',
+      (tester) async {
+    final id = await load();
+    final earned = <bool>[];
+    manager.debugVipManager = _ActiveVip();
+    try {
+      final pending = manager.showRewardedAd(
+        onEarnedReward: earned.add,
+        ssvUserId: 'u',
+        bypassVipGuard: true,
+      );
+      await tester.pump();
+      ssv.complete();
+      await tester.pump();
+      expect(ids('showAdWithoutView'), [id],
+          reason: 'a VIP user voluntarily watching to extend must still play');
+      await finish(id);
+      await pending;
+      await tester.pump(const Duration(seconds: 31));
+    } finally {
+      manager.debugVipManager = null;
+    }
+  });
+
+  testWidgets('CONTROL — a hold cleared before SSV completes still shows once',
+      (tester) async {
+    final id = await load();
+    final pending = manager.showRewardedAd(
+      onEarnedReward: (_) {},
+      ssvUserId: 'u',
+    );
+    await tester.pump();
+    markCustomOverlayOnScreen(true);
+    markCustomOverlayOnScreen(false);
+    ssv.complete();
+    await tester.pump();
+    expect(ids('showAdWithoutView'), [id]);
+    await finish(id);
+    await pending;
+    await tester.pump(const Duration(seconds: 31));
+  });
+
+  testWidgets('throwing disposal callback cannot leave a duplicate watchdog',
+      (tester) async {
+    final id = await load();
+    var callbacks = 0;
+    final pending = adapter.showRewarded(
+      ssvUserId: 'u',
+      onDone: (_) {
+        callbacks++;
+        throw StateError('synthetic host callback failure');
+      },
+    );
+    await tester.pump();
+    Object? disposeError;
+    try {
+      await adapter.dispose();
+    } catch (e) {
+      disposeError = e;
+    }
+    disposed = true;
+    final stateAfterDispose = adapter.rewardedSlot.value;
+    ssv.complete();
+    await tester.pump();
+    await pending;
+    await tester.pump(const Duration(seconds: 11));
+    final watchdogError = tester.takeException();
+    expect(callbacks, 1,
+        reason: 'disposal must consume the callback before invoking host code');
+    expect(disposeError, isNull);
+    expect(watchdogError, isNull);
+    expect(stateAfterDispose, AdSlotState.idle);
+    expect(instanceManager.adFor(id), isNull);
   });
 
   for (final scenario in ['ump-gate', 'paused', 'hidden']) {
