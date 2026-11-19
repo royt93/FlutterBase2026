@@ -6,6 +6,12 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (VIP revocation):** two `refreshRevocationList()` calls overlapping on one live `VipManager` could let the OLDER list's cache write land after a newer one, so a revoked key redeemed again after restart. The write is now skipped when a newer list was accepted meanwhile.
+- **Fixed (rewarded + SSV):** while a rewarded ad waited on server-side-verification setup, VIP turning on or a host dialog / consent form / custom overlay opening was not re-checked, so the ad could still be presented. Those conditions are now checked again right before the native show. `bypassVipGuard: true` (watch an ad to extend VIP) still plays.
+- **Fixed (AdMob dispose):** `AdMobAdapter.dispose()` ran the four pending host callbacks before clearing them and before its own cleanup, so a host callback that threw skipped cleanup and a surviving 10 s watchdog delivered the result a second time. Callbacks are now cleared first, run after cleanup, and isolated from each other.
+- **Fixed (release tooling):** the secret scan in `tool/release_readiness_gate.sh` only matched unquoted values, so a conventional `const privateKey = '...';` passed; it now also matches quoted values and quoted key names (fixture tests added). The pub.dev archive no longer ships `example/integration_test/admob_late_load_midshow_test.dart`, which imports the excluded `test/` folder and could not compile for consumers.
+- **Docs:** README VIP section corrected — `maxVipStackDuration` defaults to 90 days and also caps non-stacking grants, so a 365-day purchase needs an explicit cap.
+
 ## [3.7.5] - 2026-11-18
 
 - **Changed (logging/docs only):** `clearSdkData()` now logs a warning at the moment it times out (before, only the late finish or failure was logged), and its dartdoc states that a retry queues behind a stalled storage call and that a never-returning call keeps Flight Recorder paused until restart. No behavior or API change.

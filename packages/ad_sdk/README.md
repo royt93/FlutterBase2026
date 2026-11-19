@@ -1201,14 +1201,17 @@ await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true
 await vip.addVip(key: 'PROMO30', duration: const Duration(days: 30), stack: true); // 66d total
 ```
 
-**Optional cap.** Set `AdConfig.maxVipStackDuration` to bound the *total* stacked
-window — a stacked grant is then clamped to `now + maxVipStackDuration` (excess
-dropped; the entry still extends up to the cap). `null` (default) = uncapped.
-Only the stacking path is clamped; a plain absolute `addVip` is never touched.
+**Grant cap.** `AdConfig.maxVipStackDuration` defaults to **90 days** and bounds
+new grants to `now + maxVipStackDuration`, for both `stack: true` and
+`stack: false`. Excess duration is dropped. Set it explicitly to `null` to
+remove the cap, or choose a ceiling that covers your product's grant duration.
 
 ### Programmatic add (purchase / restore flow)
 
-Use this when the user purchases a VIP unlock through your IAP flow:
+Use this when the user purchases a VIP unlock through your IAP flow. For an
+annual grant, configure `maxVipStackDuration: const Duration(days: 365)` (or
+explicitly `null`) in the `AdConfig` used at SDK initialization **before**
+calling `addVip`; leaving the default cap would grant at most 90 days:
 
 ```dart
 await AdManager().vip!.addVip(
