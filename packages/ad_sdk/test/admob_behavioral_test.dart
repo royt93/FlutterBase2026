@@ -2157,4 +2157,121 @@ void main() {
       expect(second, isNot(first));
     });
   });
+
+  // Dispose with a pending show whose host callback throws: cleanup must still
+  // finish, the callback must run exactly once, and the show watchdog (10s)
+  // must not deliver the result a second time.
+  group('dispose() with pending callbacks that throw', () {
+    // name -> (load, show, slot, last ad)
+    final formats = <String,
+        ({
+      Future<void> Function() load,
+      Future<void> Function(void Function(Object?) done) show,
+      AdSlot Function() slot,
+      FakeGmaFullscreenAd? Function() ad,
+    })>{};
+    setUp(() {
+      formats
+        ..clear()
+        ..['app open'] = (
+          load: () => adapter.loadAppOpen(),
+          show: (d) => adapter.showAppOpen(onDismiss: (v) => d(v)),
+          slot: () => adapter.appOpenSlot,
+          ad: () => bridge.lastAppOpen,
+        )
+        ..['interstitial'] = (
+          load: () => adapter.loadInterstitial(),
+          show: (d) => adapter.showInterstitial(onDone: (v) => d(v)),
+          slot: () => adapter.interstitialSlot,
+          ad: () => bridge.lastInter,
+        )
+        ..['rewarded'] = (
+          load: () => adapter.loadRewarded(),
+          show: (d) => adapter.showRewarded(onDone: (v) => d(v)),
+          slot: () => adapter.rewardedSlot,
+          ad: () => bridge.lastRewarded,
+        )
+        ..['rewarded interstitial'] = (
+          load: () => adapter.loadRewardedInterstitial(),
+          show: (d) => adapter.showRewardedInterstitial(onDone: (v) => d(v)),
+          slot: () => adapter.rewardedInterstitialSlot,
+          ad: () => bridge.lastRewardedInterstitial,
+        );
+    });
+
+    for (final name in [
+      'app open',
+      'interstitial',
+      'rewarded',
+      'rewarded interstitial'
+    ]) {
+      test('$name: a throwing callback cannot skip cleanup or fire twice', () {
+        fakeAsync((async) {
+          final f = formats[name]!;
+          unawaited(f.load());
+          async.flushMicrotasks();
+          f.ad()!.hangOnShow = true;
+          var calls = 0;
+          unawaited(f.show((_) {
+            calls++;
+            throw StateError('synthetic host callback failure');
+          }));
+          async.flushMicrotasks();
+
+          Object? disposeError;
+          unawaited(adapter.dispose().catchError((Object e) {
+            disposeError = e;
+          }));
+          async.flushMicrotasks();
+          expect(disposeError, isNull, reason: 'host errors must not escape');
+          expect(calls, 1);
+          expect(f.ad()!.disposeCount, 1, reason: 'native ad released once');
+
+          async.elapse(const Duration(seconds: 31));
+          expect(calls, 1, reason: 'the watchdog must not resolve it again');
+        });
+      });
+    }
+
+    test('two pending callbacks that both throw are both attempted', () {
+      fakeAsync((async) {
+        final calls = <String>[];
+        // Interstitial and rewarded can be pending together: arm each with its
+        // own hung show, bypassing the manager's cross-format mutex.
+        for (final entry in <String, Future<void> Function()>{
+          'interstitial': () async {
+            await adapter.loadInterstitial();
+            bridge.lastInter!.hangOnShow = true;
+            unawaited(adapter.showInterstitial(onDone: (_) {
+              calls.add('interstitial');
+              throw StateError('interstitial failed');
+            }));
+          },
+          'rewarded': () async {
+            await adapter.loadRewarded();
+            bridge.lastRewarded!.hangOnShow = true;
+            unawaited(adapter.showRewarded(onDone: (_) {
+              calls.add('rewarded');
+              throw StateError('rewarded failed');
+            }));
+          },
+        }.entries) {
+          unawaited(entry.value());
+          async.flushMicrotasks();
+        }
+
+        Object? disposeError;
+        unawaited(adapter.dispose().catchError((Object e) {
+          disposeError = e;
+        }));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 31));
+
+        expect(disposeError, isNull);
+        expect(calls.toSet(), {'interstitial', 'rewarded'},
+            reason: 'one throwing callback must not stop the next');
+        expect(calls, hasLength(2), reason: 'each exactly once');
+      });
+    });
+  });
 }

@@ -580,15 +580,25 @@ class AdMobAdapter
     }
     _nativeAdsByKey.clear();
 
-    // Fire any pending callbacks with `false` so callers don't hang.
-    _appOpenDismiss?.call(false);
-    _appOpenDismiss = null;
-    _interstitialDone?.call(false);
-    _interstitialDone = null;
-    _rewardedDone?.call(RewardResult.skipped);
-    _rewardedDone = null;
-    _rewardedInterstitialDone?.call(RewardResult.skipped);
-    _rewardedInterstitialDone = null;
+    // Release pending callbacks so callers don't hang. Take and null every
+    // field BEFORE running host code: a throwing callback must not skip the
+    // cleanup below or leave a field for a surviving watchdog to fire again.
+    final pending = <void Function()>[];
+    final ao = _appOpenDismiss, it = _interstitialDone;
+    final rw = _rewardedDone, ri = _rewardedInterstitialDone;
+    _appOpenDismiss = _interstitialDone = null;
+    _rewardedDone = _rewardedInterstitialDone = null;
+    if (ao != null) pending.add(() => ao(false));
+    if (it != null) pending.add(() => it(false));
+    if (rw != null) pending.add(() => rw(RewardResult.skipped));
+    if (ri != null) pending.add(() => ri(RewardResult.skipped));
+    for (final run in pending) {
+      try {
+        run();
+      } catch (e) {
+        SafeLogger.w(_logTag, 'dispose: pending callback threw: $e');
+      }
+    }
 
     appOpenSlot.reset();
     interstitialSlot.reset();
