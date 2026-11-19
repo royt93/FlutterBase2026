@@ -138,6 +138,7 @@ fi
 Future<Directory> _fixtureRepo({
   required bool withSecret,
   required bool withRequiredExports,
+  String secretLine = 'private_key = abcdefghijklmnop1234567890 // must never ship',
 }) async {
   final dir = await Directory.systemTemp.createTemp('t213_fixture_repo_');
   final libDir = Directory('${dir.path}/packages/ad_sdk/lib');
@@ -150,8 +151,7 @@ Future<Directory> _fixtureRepo({
       : "export 'src/core/ad_manager.dart';\n");
 
   if (withSecret) {
-    await File('${libDir.path}/leaked.dart').writeAsString(
-        'private_key = abcdefghijklmnop1234567890 // must never ship\n');
+    await File('${libDir.path}/leaked.dart').writeAsString('$secretLine\n');
   } else {
     await File('${libDir.path}/clean.dart')
         .writeAsString('int add(int a, int b) => a + b;\n');
@@ -333,6 +333,42 @@ void main() {
       final leakedResult = await _runGate(leaked, 'secret', extraEnv: env);
       expect(leakedResult.exitCode, isNot(0));
       expect(leakedResult.stderr, contains('possible secret found'));
+    });
+
+    test('secret_scan also catches quoted Dart secrets and ignores benign code',
+        () async {
+      final stubDir = await _rgStubDir();
+      if (stubDir == null) {
+        markTestSkipped('no pcre2grep binary available to build the rg '
+            'stub on this machine');
+        return;
+      }
+      final env = {'PATH': '${stubDir.path}:${Platform.environment['PATH']}'};
+
+      final leaks = <String>[
+        "const privateKey = 'abcdefghijklmnop1234567890';",
+        'const privateKey = "abcdefghijklmnop1234567890";',
+        "const m = {'vipKey': 'abcdefghijklmnop1234567890'};",
+        '"private_key": "abcdefghijklmnop1234567890"',
+      ];
+      for (final line in leaks) {
+        final repo = await _fixtureRepo(
+            withSecret: true, withRequiredExports: true, secretLine: line);
+        final r = await _runGate(repo, 'secret', extraEnv: env);
+        expect(r.exitCode, isNot(0), reason: 'must flag: $line');
+      }
+
+      final benign = <String>[
+        "const privateKey = 'short';",
+        'final privateKeyBytes = <int>[];',
+        '// the vip key = a value you mint offline',
+      ];
+      for (final line in benign) {
+        final repo = await _fixtureRepo(
+            withSecret: true, withRequiredExports: true, secretLine: line);
+        final r = await _runGate(repo, 'secret', extraEnv: env);
+        expect(r.exitCode, 0, reason: 'must not flag: $line (${r.stderr})');
+      }
     });
 
     test('api_check passes when the required exports are present, fails '

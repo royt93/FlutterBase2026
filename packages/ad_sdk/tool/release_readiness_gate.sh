@@ -27,7 +27,7 @@ _require_rg() {
 secret_scan() {
   _require_rg
   if (cd "$repo_root" && git ls-files 'packages/ad_sdk/lib/**' | xargs -r rg -n --pcre2 \
-      '(?i)(private[_ -]?key|vip[_ -]?(key|token|code))\s*[:=]\s*[A-Za-z0-9._-]{20,}'); then
+      '(?i)(private[_ -]?key|vip[_ -]?(key|token|code))['"'"'"]?\s*[:=]\s*['"'"'"]?[A-Za-z0-9._-]{20,}'); then
     echo 'release gate: possible secret found in production source' >&2
     return 1
   else
