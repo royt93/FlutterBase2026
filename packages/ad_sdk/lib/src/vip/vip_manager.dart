@@ -1635,19 +1635,15 @@ class VipManager {
     // the next fetch. The other order left the CRL cached and the grants
     // full-length, and nothing ever revisited them.
     await _clampRevokedEntries();
-    // Round-25 QC round 20 (`codex`, MAJOR) — round 19's check above is not the
-    // last await on this path: `_clampRevokedEntries()` writes the entries store
-    // and can be blocked long enough for the host to tear the SDK down and the
-    // replacement manager to cache a NEWER CRL. Re-read here, immediately before
-    // the two `_prefs` writes, because those writes are the actual harm: they
-    // roll the cached CRL back and a revoked key redeems again next launch. The
-    // clamp itself is safe to have run — it only ever narrows a grant, and its
-    // own persistence goes through the disposed-guarded `_save()`.
-    if (_disposed) {
+    // Round-25 QC round 20 — the clamp's write can park this call while the
+    // host tears down or a NEWER list is accepted on this same manager. Re-check
+    // right before the cache write (no await in between): persisting an older
+    // list over a newer one makes a revoked key redeemable again next launch.
+    if (_disposed || _revocationIssuedAt != parsed.issuedAt) {
       SafeLogger.w(
           _tag,
-          'refreshRevocationList: disposed during the clamp — CRL not '
-          'persisted');
+          'refreshRevocationList: superseded or disposed during the clamp — '
+          'CRL not persisted');
       return;
     }
     // Round-7 audit, MAJOR — the key is remembered alongside the CRL so

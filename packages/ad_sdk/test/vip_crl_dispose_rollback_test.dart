@@ -108,6 +108,117 @@ void main() {
     return r.status;
   }
 
+  test('overlapping refreshes on one live manager keep the newest CRL after '
+      'a held clamp write completes', () async {
+    final blockingStore = _BlockingVipEntriesStore(prefs);
+    final live = VipManager(prefs,
+        vipEntriesStore: blockingStore, isConnectedCheck: () => true);
+    final releaseClamp = Completer<void>();
+    final clampStarted = Completer<void>();
+    Future<void>? olderRefresh;
+    addTearDown(() async {
+      if (!releaseClamp.isCompleted) releaseClamp.complete();
+      try {
+        await olderRefresh;
+      } finally {
+        live.dispose();
+      }
+    });
+
+    await live.load();
+    await live.addVip(key: 'SIGNED_X', duration: const Duration(days: 30));
+    final originalExpiry = live.entries.single.expiresAt;
+    // Finish signing before parking storage; no fake-async or crypto timeout
+    // participates in the refresh ordering.
+    final older = await crl(1000, const <String>['X']);
+    final newer = await crl(2000, const <String>['X', 'Y']);
+    final signedX = await key('X');
+    final signedY = await key('Y');
+    blockingStore
+      ..blockNextWrite = releaseClamp
+      ..nextWriteStarted = clampStarted;
+    olderRefresh = live.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _Crl(Future<String?>.value(older)));
+    await clampStarted.future.timeout(const Duration(seconds: 5));
+    final clampedExpiry = live.entries.single.expiresAt;
+    expect(clampedExpiry.isBefore(originalExpiry), isTrue);
+    expect(prefs.getVipRevocationCache(), isNull);
+
+    // X is already narrowed in RAM and Y has no grant. B therefore needs no
+    // clamp write and can persist while A's secure-storage write stays held.
+    await live
+        .refreshRevocationList(
+            publicKeyBase64: pub,
+            revocationProvider: _Crl(Future<String?>.value(newer)))
+        .timeout(const Duration(seconds: 5));
+    expect(releaseClamp.isCompleted, isFalse);
+    expect(live.entries.single.expiresAt, clampedExpiry);
+    expect(prefs.getVipRevocationCache()?.raw, newer);
+    expect(
+        (await live.redeemSignedKey(signedY, publicKeyBase64: pub)).status,
+        VipRedeemStatus.invalid);
+
+    releaseClamp.complete();
+    await olderRefresh;
+    live.dispose();
+    final restarted = VipManager(prefs,
+        vipEntriesStore: blockingStore, isConnectedCheck: () => true);
+    addTearDown(restarted.dispose);
+    await restarted.load();
+    final x = await restarted.redeemSignedKey(signedX, publicKeyBase64: pub);
+    final y = await restarted.redeemSignedKey(signedY, publicKeyBase64: pub);
+    expect(
+        <String, Object?>{
+          'cache': prefs.getVipRevocationCache()?.raw,
+          'X': x.status,
+          'Y': y.status,
+        },
+        <String, Object?>{
+          'cache': newer,
+          'X': VipRedeemStatus.invalid,
+          'Y': VipRedeemStatus.invalid,
+        },
+        reason: 'A must not overwrite B after its held clamp write resumes; '
+            'the newest cached CRL must still reject Y after restart');
+  });
+
+  test('CONTROL — sequential older-then-newer refreshes end on the newer CRL',
+      () async {
+    final live = VipManager(prefs,
+        vipEntriesStore: store, isConnectedCheck: () => true);
+    await live.load();
+    addTearDown(live.dispose);
+    final older = await crl(1000, const <String>['X']);
+    final newer = await crl(2000, const <String>['X', 'Y']);
+    await live.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _Crl(Future<String?>.value(older)));
+    await live.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _Crl(Future<String?>.value(newer)));
+    expect(prefs.getVipRevocationCache()?.raw, newer);
+    expect(await statusAfterRestart('Y'), VipRedeemStatus.invalid);
+  });
+
+  test('CONTROL — an older list arriving after a newer one is ignored',
+      () async {
+    final live = VipManager(prefs,
+        vipEntriesStore: store, isConnectedCheck: () => true);
+    await live.load();
+    addTearDown(live.dispose);
+    final older = await crl(1000, const <String>['X']);
+    final newer = await crl(2000, const <String>['X', 'Y']);
+    await live.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _Crl(Future<String?>.value(newer)));
+    await live.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _Crl(Future<String?>.value(older)));
+    expect(prefs.getVipRevocationCache()?.raw, newer);
+    expect(await statusAfterRestart('Y'), VipRedeemStatus.invalid);
+  });
+
   group('a CRL fetch that outlives dispose() cannot undo a revocation', () {
     test(
         'dispose during the grant-clamp await cannot roll the CRL back either',
