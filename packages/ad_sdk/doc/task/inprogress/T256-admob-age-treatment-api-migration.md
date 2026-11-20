@@ -3,7 +3,7 @@
 - **Loại:** Compatibility follow-up
 - **Priority:** P3 · **Effort:** M
 - **Confidence:** FOLLOW-UP explicitly noted in repo guidance; not current failure
-- **Status:** inprogress · implementation + static/build gates complete; physical-device consent smoke remains before closure
+- **Status:** deferred (2026-11-20) · implementation + static/build gates complete; iOS physical-device consent smoke remains blocked until an iPhone is available
 - **Evidence:** `CLAUDE.md` pinning notes; `lib/src/adapters/admob_adapter.dart` legacy child/under-age flags; `lib/src/adapters/gma_bridge.dart`; `pubspec.yaml` Google Mobile Ads pin/comment; `test/admob_adapter_test.dart`, consent tests; 2026-11-06 pub.dev `google_mobile_ads` 9.1/9.2 changelog/API docs and `gma_mediation_applovin` 2.6.5 metadata
 - **Dependency:** upstream API/deprecation status; consuming-app CocoaPods/pinning-wall validation
 
@@ -22,7 +22,7 @@ SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfC
 - [x] Android physical-device smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): TFUA true/false with doNotSell true/false passed; outgoing `ageRestrictedTreatment` and test-device IDs confirmed. UMP geography was `notRequired`; no EEA UMP form shown.
 - [x] Android COPPA smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): `COPPA forwards child age treatment to native Android` passed; outgoing `ageRestrictedTreatment=child` and effective test-device IDs confirmed.
 - [x] EEA UMP debug flow on Pixel 7 Pro (2026-11-07, AdMob publisher test ads): obtained UMP test-device hash from Google log, forced EEA debug geography, confirmed form rendered for 205 partners. First dismissal attempt closed form visually but callback timed out after 180s (`status=required`, `canRequestAds=false`); app data was cleared and flow repeated. Second attempt pressed Consent; callback completed without error, final status `obtained`, `canRequestAds=true`, `formShown=true`. Pixel app data cleared after test. This verifies debug EEA flow on Pixel only, not general compliance/region coverage.
-- [ ] Remaining device coverage: iOS physical-device smoke. iOS Simulator launch surfaced the ATT prompt, but automated dismissal is blocked by host accessibility restrictions (`System Events` click returned -25204; `simctl privacy` failed with `Operation not permitted`). Do not claim iOS consent-flow completion. No production ad traffic used.
+- [ ] **Deferred 2026-11-20 — iPhone physical device not available.** iOS Simulator launch surfaced the ATT prompt, but automated dismissal is blocked by host accessibility restrictions (`System Events` click returned -25204; `simctl privacy` failed with `Operation not permitted`). Do not claim iOS consent-flow completion. No production ad traffic used. Resume only when an iPhone is available.
 - Final analyzer after migration reports no issues. Keep T256 open until remaining device coverage is complete.
 
 ## Acceptance criteria
@@ -35,7 +35,7 @@ SDK đang dùng cặp legacy `tagForChildDirectedTreatment` / `tagForUnderAgeOfC
 - [x] Android physical-device smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): TFUA true/false with doNotSell true/false passed; outgoing `ageRestrictedTreatment` and test-device IDs confirmed. UMP geography was `notRequired`; no EEA UMP form shown.
 - [x] Android COPPA smoke (TECNO KJ7, AdMob test IDs, 2026-11-06): `COPPA forwards child age treatment to native Android` passed; outgoing `ageRestrictedTreatment=child` and effective test-device IDs confirmed.
 - [x] EEA UMP debug flow on Pixel 7 Pro (2026-11-07, AdMob publisher test ads): obtained UMP test-device hash from Google log, forced EEA debug geography, confirmed form rendered for 205 partners. First dismissal attempt closed form visually but callback timed out after 180s (`status=required`, `canRequestAds=false`); app data was cleared and flow repeated. Second attempt pressed Consent; callback completed without error, final status `obtained`, `canRequestAds=true`, `formShown=true`. Pixel app data cleared after test. This verifies debug EEA flow on Pixel only, not general compliance/region coverage.
-- [ ] Remaining device coverage: iOS physical-device smoke. iOS Simulator launch surfaced the ATT prompt, but automated dismissal is blocked by host accessibility restrictions (`System Events` click returned -25204; `simctl privacy` failed with `Operation not permitted`). Do not claim iOS consent-flow completion. No production ad traffic used.
+- [ ] **Deferred 2026-11-20 — iPhone physical device not available.** iOS Simulator launch surfaced the ATT prompt, but automated dismissal is blocked by host accessibility restrictions (`System Events` click returned -25204; `simctl privacy` failed with `Operation not permitted`). Do not claim iOS consent-flow completion. No production ad traffic used. Resume only when an iPhone is available.
 
 T256 remains in progress until the device smoke is done; no release/publish approval is implied.
 
