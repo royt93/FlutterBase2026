@@ -1,6 +1,6 @@
 # Host pilot — hướng dẫn một trang (Android + AdMob)
 
-Dành cho team host chạy pilot trên **app của chính họ**. Checklist đầy đủ và bằng chứng nằm ở `pilot_checklist_android_admob.md`; file này chỉ nói việc cần làm. Bằng chứng hiện có chỉ từ example app với Google test ads, không thay thế pilot này.
+Dành cho team host chạy pilot trên **app của chính họ**. Checklist đầy đủ và bằng chứng nằm ở `pilot_checklist_android_admob.md`; file này chỉ nói việc cần làm. Bằng chứng hiện có chỉ từ example/disposable consumer với Google test ads, không thay thế pilot này.
 
 ## 1. Chốt bản SDK
 
@@ -10,11 +10,11 @@ Dành cho team host chạy pilot trên **app của chính họ**. Checklist đ�
 
 ## 2. Chạy theo thứ tự (mỗi bước ghi PASS / FAIL / NOT RUN)
 
-1. **Test ads + test device:** mỗi format host dùng load → show → dismiss, không crash; reward chỉ cấp khi `earned=true`. (Checklist mục C)
+1. **Test ads + test device:** mỗi format host dùng load → show → dismiss, không crash; reward chỉ cấp khi `earned=true`. Dùng app test ID/unit của Google, không ad inventory production. (Checklist mục C)
 2. **Consent (UMP):** với EEA `DebugGeography`, thử Consent, Do not consent và Privacy Options; ghi trạng thái UMP và `nonPersonalizedAds`. (Mục B)
 3. **Nền → mở lại:** lần mở lại đầu tiên sau khởi động **cố ý không hiện App Open** (cold-start guard); lần sau mới hiện. App Open không chồng lên dialog, không hiện khi VIP/trial đang bật. (Mục C)
 4. **Mạng:** tắt/bật Wi‑Fi và thử mạng di động; mất mạng thì không request mới, có mạng lại thì tải lại. (Mục C)
-5. **Xóa dữ liệu:** `await AdManager().clearSdkData()` trên dữ liệu giả; key riêng của host còn nguyên. Bắt `TimeoutException` (30 giây): hiển thị **chưa xác nhận xóa**, không báo thành công. (Mục C2)
+5. **Xóa dữ liệu:** `await AdManager().clearSdkData()` trên dữ liệu giả; key riêng của host còn nguyên. Bắt `TimeoutException` (30 giây): hiển thị **chưa xác nhận xóa**, không báo thành công. Nút báo xóa chỉ thành công sau khi Future trả về bình thường. (Mục C2)
 6. **Build release:** test ad ID của Google không nằm trong cấu hình release; ad unit ID, `app-ads.txt`, UMP message đúng app/publisher; R8/ProGuard và signing kiểm bằng bản release. (Mục A)
 
 ## 3. Ghi kết quả (mẫu điền)
@@ -42,4 +42,4 @@ Ngưỡng số người/số ngày do chủ sản phẩm chọn. Gặp lỗi: gi
 
 ## 5. Chưa được chứng minh (đừng suy ra đã ổn)
 
-Host app thật, ad unit production, consent trên thiết bị người dùng thật, iOS, AppLovin, FPS/bộ nhớ native, và đường `clearSdkData()` timeout với storage treo thật (chỉ kiểm bằng backend giả trong test của SDK). Nếu storage treo mãi, Flight Recorder dừng ghi cho tới khi app khởi động lại và retry xếp sau thao tác đang kẹt.
+Host app thật, ad unit production, consent trên thiết bị người dùng thật, iOS, AppLovin, FPS/bộ nhớ native, và đường `clearSdkData()` timeout với storage treo thật (chỉ kiểm bằng backend giả trong test của SDK). Nếu storage treo mãi, Flight Recorder dừng ghi cho tới khi app khởi động lại; retry xếp sau thao tác đang kẹt và không bảo đảm tự giải quyết.
