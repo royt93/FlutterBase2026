@@ -31,6 +31,14 @@ Dành cho team host chạy pilot trên **app của chính họ**. Checklist đ�
 
 Việc **không chạy được** ghi `NOT RUN` kèm lý do; không để trống rồi coi là đạt. Không đưa consent string, GAID, token hay dữ liệu người dùng thật vào log gửi lại.
 
+### Telemetry tối thiểu (host-owned, chỉ trong thời gian pilot)
+
+- Subscribe `AdManager().events`; aggregate `AdLoadEvent` success/failure và `AdSkipEvent` theo provider, format, placement, action/reason. Không gọi mọi load failure là “no fill” nếu error code không chứng minh điều đó.
+- `AdLoadEvent` không có request ID; latency host đo tới event khớp chỉ là gần đúng nếu nhiều request cùng format/placement đang chạy. Không báo latency 1:1 chính xác trừ khi host tuần tự hóa request đó. `AdShowEvent` có request ID nullable, nhưng tránh lưu ID nếu không thật sự cần.
+- Ghi consent outcome coarse (ví dụ UMP status, `canRequestAds`, NPA true/false), không lưu TCF/TC string hay GAID.
+- Ghi kết quả `clearSdkData()` tại call site: completed / `TimeoutException` (unconfirmed) / other failure. Đo thời gian bằng monotonic clock của host. SDK không phát public event cho completion muộn sau timeout; không suy ra timeout là success.
+- Aggregate theo ngày/cohort nhỏ, giữ pilot-window ngắn, đặt ngày xóa và giới hạn người xem. Tránh user-level timeline, request/creative IDs, raw error text và network/mediation detail từ `AdRevenueEvent`; không thêm SDK telemetry sender.
+
 ## 4. Dừng ngay nếu
 
 - Crash/ANR tăng rõ so với bản không có ad.
