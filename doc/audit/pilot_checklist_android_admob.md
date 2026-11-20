@@ -150,6 +150,10 @@ Evidence cùng thư mục (log đã che; run đầu `appopen-resume-guards.*` gi
 
 Giới hạn: một máy, debug/example, Google test ads và VIP entry tổng hợp; không chứng minh production release, quyền VIP trả phí, iOS/AppLovin hoặc mọi thứ tự cạnh tranh lifecycle. Dialog được kiểm khi ad ready; VIP có thể tự giải phóng ad, nên không suy ra VIP vẫn giữ creative trong cache.
 
+### Đính chính kiểm tra hash evidence — 2026-11-20
+
+Một lần kiểm tra trước dùng path prefix sai từ thư mục `packages/ad_sdk` nên báo nhầm rằng evidence không có trong Git. Đã xác minh lại: commit `057d3f0` là tổ tiên của `origin/main`; tree trên GitHub chứa đủ 12 file dưới `doc/audit/evidence/appopen_tecno_20261118/`. So sánh Git blob SHA local với GitHub tree cho kết quả **12/12 khớp**, không cần khôi phục hoặc thêm file.
+
 ## G. Khoảng trống còn mở
 
 - Pilot trên host app thật chưa chạy.
