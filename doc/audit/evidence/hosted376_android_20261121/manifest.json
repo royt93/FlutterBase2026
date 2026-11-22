@@ -8,7 +8,8 @@
   "devices": {
     "interstitial": "TECNO KJ7",
     "rewarded": "Samsung S24 Ultra",
-    "rewarded_interstitial": "Samsung S24 Ultra"
+    "rewarded_interstitial": "Samsung S24 Ultra",
+    "pixel_cancel_and_rewarded": "Pixel 7 Pro"
   },
   "consumer_change": "Example navigation timer changed from 8 to 240 seconds; AdConfig.splashMaxDuration remained 8 seconds. SDK source unchanged.",
   "log_transform": "Exact process and message allowlist; retain timestamp, tag and callback values; convert source success/loading markers to [success]/[loading]; remove PID/TID and other decorative Unicode symbols. Missing lines do not prove absence of requests, errors or duplicate callbacks.",
@@ -18,7 +19,8 @@
     "Rewarded Interstitial disclosure accept path only; cancel, early close, error paths and server-side verification not established by this bundle.",
     "Historical test counts and other formats are not newly executed by this export.",
     "Samsung Settings search was a UI observation in a tab labeled Secure Folder, not an authoritative user-150 package query; package-ID search support and tab-to-user mapping were not verified.",
-    "Two earlier live logcat captures ended with code 255 after successful installs; cause unconfirmed, selected reward/dismiss evidence remains saved."
+    "Two earlier live logcat captures ended with code 255 after successful installs; cause unconfirmed, selected reward/dismiss evidence remains saved.",
+    "Pixel 2026-11-22: disclosure Cancel passed. Early close without earned was NOT established: Back in countdown did not leave the ad; one Home press (~3s into countdown) produced no earned/dismissed log and a new AdManager singleton (Dart state reset, same PID) with a memory-pressure warning beforehand. Cause unverified; no earned=false callback observed."
   ],
   "files": {
     "interstitial.log": {
@@ -74,6 +76,27 @@
       "source_sha256": "475e306c5c20443f2ffe976f72f909efa9778aa0cbca2b58b2b7596e95333ba6",
       "sha256": "8ebefa245f78bcf6c64331cd64d3a9b9c764ea1b140bb337baa3ff266270939e",
       "cropped_top_pixels": 0
+    },
+    "pixel_cancel_and_rewarded.log": {
+      "source_basename": "pixel_qa376 local capture (2026-11-22)",
+      "sha256": "7d7adb61b4a8743cf3f12c2a8a3d1d040eb7932b4ae8f4d9c03c490b298fc677"
+    },
+    "pixel_early_close_attempt.log": {
+      "source_basename": "pixel_qa376 local capture (2026-11-22)",
+      "sha256": "6893a89c42ecbce70d6b8c7640fa0955365428b0511c454d25a5e512046b71d4"
+    },
+    "pixel_cancel_disclosure.png": {
+      "source_basename": "pixel_qa376 local capture (2026-11-22)",
+      "sha256": "de27e15f1ab28fadf8b33e1ae8c78ee592fda98fe85887ccc55f8a247b4e0bbc"
+    },
+    "pixel_rewarded_countdown.png": {
+      "source_basename": "pixel_qa376 local capture (2026-11-22)",
+      "sha256": "85843358f0328fc33835fc7d7ad6cbe924c42939b0c28181feb066d8f3c4143c"
+    },
+    "pixel_home_during_countdown.log": {
+      "source_basename": "pixel_qa376_early2 local capture (2026-11-22)",
+      "sha256": "545996167307a445bbaaf8694dae48cd0842a37fae03694f55e6fcec0d515c14",
+      "selected_lines": 7
     }
   }
 }

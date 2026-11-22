@@ -1,0 +1,8 @@
+2026-11-22 21:33:55.349 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=true
+2026-11-22 21:33:56.914 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-22 21:35:38.684 [AdMobAdapter] showRewardedInterstitial [AdMob] [success] shown
+2026-11-22 21:35:38.685 [AdMobAdapter] showRewardedInterstitial [AdMob] impression
+2026-11-22 21:35:46.515 [AdMobAdapter] showRewardedInterstitial [AdMob] type=Coins amount=10
+2026-11-22 21:35:46.541 [AdScreen] showRewardedInterstitialAd onDone: shown=true earned=true
+2026-11-22 21:36:34.830 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=false
+2026-11-22 21:36:35.038 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)

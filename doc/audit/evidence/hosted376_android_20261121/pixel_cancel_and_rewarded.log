@@ -1,0 +1,15 @@
+2026-11-22 21:19:47.345 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=true
+2026-11-22 21:19:49.885 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-22 21:21:51.031 [AdScreen] showRewardedInterstitialAd disclosure declined
+2026-11-22 21:22:49.548 [AdScreen] showRewardedAd pre-check result: canShow=true
+2026-11-22 21:22:50.687 [AdMobAdapter] showRewarded [AdMob] [success] shown
+2026-11-22 21:22:50.688 [AdMobAdapter] showRewarded [AdMob] impression
+2026-11-22 21:22:58.517 [AdMobAdapter] showRewarded [AdMob] type=coins amount=10
+2026-11-22 21:22:58.538 [AdScreen] showRewardedAd onEarnedReward: result=true
+2026-11-22 21:23:18.938 [AdMobAdapter] showRewarded [AdMob] dismissed (earned=true)
+2026-11-22 21:23:47.773 [AdScreen] showRewardedAd pre-check result: canShow=true
+2026-11-22 21:23:48.900 [AdMobAdapter] showRewarded [AdMob] [success] shown
+2026-11-22 21:23:48.901 [AdMobAdapter] showRewarded [AdMob] impression
+2026-11-22 21:23:56.688 [AdMobAdapter] showRewarded [AdMob] type=coins amount=10
+2026-11-22 21:23:56.701 [AdScreen] showRewardedAd onEarnedReward: result=true
+2026-11-22 21:24:12.837 [AdMobAdapter] showRewarded [AdMob] dismissed (earned=true)

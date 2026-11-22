@@ -1,0 +1,7 @@
+2026-11-22 21:40:37.840 [AdManager] lifecycle: resumed → inactive | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=showing | appOpen=ready
+2026-11-22 21:40:37.886 [AdMobAdapter] showRewarded [AdMob] [success] shown
+2026-11-22 21:40:37.887 [AdMobAdapter] showRewarded [AdMob] impression
+2026-11-22 21:40:40.437 [AdManager] [warning] [warning] memory pressure — inter=ready rewarded=showing appOpen=ready vip=false
+2026-11-22 21:40:40.567 [AdManager] lifecycle: inactive → hidden | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=showing | appOpen=ready
+2026-11-22 21:40:40.571 [AdManager] lifecycle: hidden → paused | splash=false | vip=false | adapter=[AdMob] | inter=ready | rewarded=showing | appOpen=ready
+2026-11-22 21:41:21.774 [AdManager] AdManager singleton CREATED — new Flutter process / cold start at 2026-11-22T21:41:21.771
