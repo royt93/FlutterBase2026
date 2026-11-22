@@ -102,6 +102,22 @@ Chưa có host app pilot. Gates host, telemetry, stop criteria và rollback nằ
 
 Mọi lượt QA tiếp theo phải dùng thiết bị owner chọn, xác minh serial/model, package riêng, Google test IDs và hash UMP của chính thiết bị. Giữ log liên tục; trả lời test form trước deadline, tách thời gian người/ADB chờ khỏi thời gian xử lý. Nếu ad không rõ test labeling thì dừng, không tap creative/CTA. Trước show phải có consent gate mở, init/load success và slot ready; không bypass safety để ép show. Sau lượt kiểm lại cleanup đúng user/profile, không suy sang profile khác.
 
+### Kế hoạch từ example sang host pilot
+
+Không tạo checklist thứ hai. Bảng dưới chỉ đối chiếu 7 mục của `host_production_readiness_android_admob.md` mục 1 với bằng chứng example hiện có, để host biết việc nào phải làm từ đầu. Mọi mục đều `NOT RUN` trên host vì chưa có host app.
+
+| Gate (nguồn chuẩn) | Example đã chứng minh một phần | Host phải làm |
+|---|---|---|
+| Release đã duyệt | Hosted 3.7.6, `source: hosted`, SHA-256 khớp archive pub.dev | Ghi version/lockfile của host, không dựa vào example |
+| App/publisher ownership | Không (example dùng Google test IDs) | Package, AdMob App ID, ad unit, `app-ads.txt`, UMP message, privacy URL thật |
+| Build thật | Chỉ debug; Gradle cần JDK 17 | Release-signed, R8, upgrade và rollback; chặn Google test IDs |
+| Consent | UMP refusal, TCF mapping, `nonPersonalizedAds=true` trên 3 thiết bị; chưa chạy accept/withdrawal/Privacy Options trên 3.7.6 | Chạy đủ accept/refuse/withdrawal trên app thật, đúng thị trường |
+| Ad UX | Interstitial, Rewarded, Rewarded Interstitial (disclosure accept và Cancel) trên test ads | Duyệt placement, App Open với dialog/VIP, SSV nếu dùng |
+| Host handling | Không | `clearSdkData()` timeout hiển thị "chưa xác nhận xóa" |
+| Pilot sign-off | Không | Chạy quickstart trên build release-shaped, owner ký từng `NOT RUN` |
+
+Thứ tự đề xuất: (1) chốt host app và ownership; (2) dựng build release-shaped với test ads; (3) chạy quickstart sáu bước và ghi PASS/FAIL/NOT RUN; (4) chạy consent đủ nhánh ở EEA debug; (5) chốt telemetry, ngưỡng và rollback; (6) ký nhận. Chỉ bước 1 cần quyết định của owner trước khi làm tiếp.
+
 ## 6. Nguồn đối chiếu
 
 - `doc/audit/audit_round79_full_sdk.md` — historical source/device evidence, chủ yếu 3.7.0/3.7.1.
