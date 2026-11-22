@@ -1,0 +1,36 @@
+2026-11-22 23:29:07.660 [UmpConsent] consent status: required
+2026-11-22 23:29:19.246 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=true
+2026-11-22 23:29:21.412 [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+2026-11-22 23:29:50.428 [AdMobAdapter] loadAppOpen [AdMob] [loading]
+2026-11-22 23:29:50.439 [AdMobAdapter] loadInterstitial [AdMob] [loading]
+2026-11-22 23:29:50.443 [AdMobAdapter] loadRewarded [AdMob] [loading]
+2026-11-22 23:29:50.447 [AdMobAdapter] loadRewardedInterstitial [AdMob] [loading]
+2026-11-22 23:29:52.519 [AdMobAdapter] loadAppOpen [AdMob] [success]
+2026-11-22 23:29:52.676 [AdMobAdapter] loadInterstitial [AdMob] [success]
+2026-11-22 23:29:52.761 [AdMobAdapter] loadRewarded [AdMob] [success]
+2026-11-22 23:29:52.791 [AdMobAdapter] loadRewardedInterstitial [AdMob] [success]
+2026-11-22 23:29:54.626 [UmpConsent] privacy options done canRequestAds=true status=obtained
+2026-11-22 23:29:54.649 [AdManager] privacy options completed but the TCF purpose consents do NOT permit personalisation → serving non-personalised ads
+2026-11-22 23:29:54.650 [AdManager] privacy options → canRequestAds=false (status=obtained)
+2026-11-22 23:29:54.652 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-22 23:29:54.652 [AdManager] personalisation withdrawn — discarding cached fullscreen ads and rebuilding inline ads
+2026-11-22 23:29:54.659 [AdMobAdapter] discardCachedFullscreenAds [AdMob] — dropped 4 cached ad(s) so the next request carries the new consent state
+2026-11-22 23:29:54.682 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-22 23:29:54.684 [AdManager] privacy options → canRequestAds=false (status=unknown)
+2026-11-22 23:29:54.684 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-22 23:29:54.699 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-22 23:29:54.699 [AdManager] consent granted via privacy options → refilling held ad slots
+2026-11-22 23:29:54.700 [AdManager] retry refill scan — vip=false inter=idle rewarded=idle appOpen=idle
+2026-11-22 23:29:54.700 [AdManager] [skipped] loadAppOpen skipped — consent not granted (UMP)
+2026-11-22 23:29:54.701 [AdManager] [skipped] loadInterstitial skipped — consent not granted (UMP)
+2026-11-22 23:29:54.701 [AdManager] [skipped] loadRewarded skipped — consent not granted (UMP)
+2026-11-22 23:29:54.701 [AdManager] [skipped] loadRewardedInterstitial skipped — consent not granted (UMP)
+2026-11-22 23:29:54.711 [AdMobAdapter] loadAppOpen [AdMob] [loading]
+2026-11-22 23:29:55.925 [AdMobAdapter] loadAppOpen [AdMob] [success]
+2026-11-22 23:34:21.461 [AdManager] retry refill scan — vip=false inter=idle rewarded=idle appOpen=ready
+2026-11-22 23:34:21.463 [AdMobAdapter] loadInterstitial [AdMob] [loading]
+2026-11-22 23:34:21.466 [AdMobAdapter] loadRewarded [AdMob] [loading]
+2026-11-22 23:34:21.467 [AdMobAdapter] loadRewardedInterstitial [AdMob] [loading]
+2026-11-22 23:34:23.175 [AdMobAdapter] loadInterstitial [AdMob] [success]
+2026-11-22 23:34:23.208 [AdMobAdapter] loadRewardedInterstitial [AdMob] [success]
+2026-11-22 23:34:23.248 [AdMobAdapter] loadRewarded [AdMob] [success]

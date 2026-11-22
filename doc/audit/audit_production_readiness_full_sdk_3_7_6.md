@@ -96,6 +96,16 @@ Pixel 7 Pro Android 17 được owner chọn khi TECNO/S24U vắng. Hosted 3.7.6
 
 **Logic SDK cho nhánh đóng sớm (fake bridge, không phải native):** `admob_behavioral_test.dart` và `r23_rewarded_interstitial_impression_test.dart` chạy 140/140 pass (2026-11-22). Chúng gồm: Rewarded và Rewarded Interstitial đóng trước khi nhận thưởng cho `earned=false`; ad đã hiện rồi đóng cho `shown=true, earned=false`; ad chưa lên màn hình cho `shown=false`. Mutation check trong bản copy cách ly (repo không đổi): đổi `if (!earned)` ở nhánh dismiss thành `if (false)` làm Rewarded fail 2 test và Rewarded Interstitial fail 1 test (`Expected: not null`, kết quả không được giao), nên test có thể đỏ. Phạm vi: chứng minh logic adapter khi bridge phát `onDismissed` mà chưa có reward, không chứng minh native ad thật gửi callback đó. Hai loại bằng chứng này khác nhau; nhánh native vẫn chưa xác lập.
 
+### 4d. Pixel 7 Pro — consent accept, Privacy Options, withdraw (2026-11-22)
+
+Hosted 3.7.6 debug QA build, package riêng, Google test ads, chạy từ example (không host pilot). Lần chạy sạch: xóa dữ liệu của chính package QA, log liên tục. Bằng chứng: `evidence/hosted376_android_20261121/pixel_consent_accept_withdraw.log` (lọc allowlist, không có hash/PID), `pixel_ump_eea_form.png`, `pixel_privacy_options_form.png`.
+
+1. **Accept:** form EEA hiện, bấm `Consent`. Log: `status=obtained`, `formShown=true`, `applyConsent -> nonPersonalizedAds=false (hasUserConsent=true)`. PASS một thiết bị, một lần.
+2. **Privacy Options:** mở từ màn Privacy settings của example, form UMP hiện lại. PASS.
+3. **Withdraw:** bấm `Do not consent`. Log: TCF không cho personalization, `applyConsent -> nonPersonalizedAds=true (hasUserConsent=false)`, `discardCachedFullscreenAds` bỏ 4 ad đã cache, không crash (`FATAL EXCEPTION` = 0). Hướng an toàn đúng: bỏ ad cũ đã nạp dưới consent cũ.
+4. **Quan sát, chưa kết luận là lỗi:** ngay sau withdraw, refill scan chạy nhưng cả 4 load bị `skipped - consent not granted (UMP)`; chỉ App Open nạp lại (~1s). Interstitial, Rewarded, Rewarded Interstitial nằm `idle` tới lần quét định kỳ 5 phút (`_retryIntervalMs`): lần chạy sạch withdraw 23:29:54 -> nạp lại 23:34:21 (~4,5 phút); lần chạy trước cùng ngày withdraw 23:23:42 -> nạp lại 23:27:40 (~4 phút). Hai lần cùng kết quả. Không có dòng `consent gate ... reopening` hay `gave up`. Hệ quả quan sát được: sau withdraw, các format fullscreen này có thể vắng tới ~5 phút. Hướng này mất doanh thu, không vi phạm consent. Nguyên nhân (gate bị đóng vì apply còn chạy so với thiết kế) chưa xác minh bằng debug; không đổi source trong phiên này.
+5. **Chưa chứng minh:** `npa=1` ở mức network; accept sau withdraw (vòng ngược); thiết bị khác ngoài Pixel; Privacy Options khi offline.
+
 ## 5. Checklist host và QA tiếp theo
 
 Chưa có host app pilot. Gates host, telemetry, stop criteria và rollback nằm ở nguồn chuẩn `host_pilot_quickstart_android_admob.md`, `pilot_checklist_android_admob.md` và `host_production_readiness_android_admob.md`; report này không sao chép lại để tránh lệch. Ghi mỗi gate `PASS`/`FAIL`/`NOT RUN`; không suy từ example.
