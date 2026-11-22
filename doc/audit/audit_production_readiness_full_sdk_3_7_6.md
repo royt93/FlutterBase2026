@@ -106,6 +106,25 @@ Hosted 3.7.6 debug QA build, package riêng, Google test ads, chạy từ exampl
 4. **Quan sát, chưa kết luận là lỗi:** ngay sau withdraw, refill scan chạy nhưng cả 4 load bị `skipped - consent not granted (UMP)`; chỉ App Open nạp lại (~1s). Interstitial, Rewarded, Rewarded Interstitial nằm `idle` tới lần quét định kỳ 5 phút (`_retryIntervalMs`): lần chạy sạch withdraw 23:29:54 -> nạp lại 23:34:21 (~4,5 phút); lần chạy trước cùng ngày withdraw 23:23:42 -> nạp lại 23:27:40 (~4 phút). Hai lần cùng kết quả. Không có dòng `consent gate ... reopening` hay `gave up`. Hệ quả quan sát được: sau withdraw, các format fullscreen này có thể vắng tới ~5 phút. Hướng này mất doanh thu, không vi phạm consent. Nguyên nhân (gate bị đóng vì apply còn chạy so với thiết kế) chưa xác minh bằng debug; không đổi source trong phiên này.
 5. **Chưa chứng minh:** `npa=1` ở mức network; accept sau withdraw (vòng ngược); thiết bị khác ngoài Pixel; Privacy Options khi offline.
 
+### 4e. Pixel 7 Pro — thử lại đóng sớm bằng Close X (2026-11-22, lượt 3) — KHÔNG hợp lệ
+
+Cùng build hosted 3.7.6 ở 4d, Google test ad (nhãn "Quảng cáo thử nghiệm"), không tap creative/CTA. Hai lượt, **không lượt nào là một phép thử đóng sớm sạch**:
+
+1. Lượt 1: uiautomator thấy `Close` lúc banner còn `... sau 1 giây` (`[1312,189][1400,273]`), nhưng tap Close chỉ được gửi sau khi tôi xem ảnh, tức sau khi reward đã cấp (`onEarnedReward` 23:37:45, `dismissed (earned=true)` 23:38:04). Đây là đóng sau reward, không phải đóng sớm.
+2. Lượt 2: tap gửi ~1 giây sau ảnh chụp lúc banner còn `... sau 4 giây`. Ảnh đó (`pixel_close_x_countdown_4s.png`) chưa có nút X, nên không chứng minh tap trúng X. Ad không đóng, reward vẫn tới (`onEarnedReward` 23:38:43), đóng bằng lần tap sau (`dismissed (earned=true)`).
+
+Kết luận: không thêm bằng chứng nào cho nhánh `earned=false` khi đóng sớm; vẫn như mục 4c (chỉ có fake-bridge). Muốn đóng giới hạn này cần người thử bấm X đúng lúc nó hiện, hoặc tự động hoá có xác nhận X đã hiện ngay trước khi tap (cùng một lệnh, không để agent xem ảnh xen giữa).
+
+### 4f. Release / R8 build của example (2026-11-22)
+
+`flutter build apk --release` từ bản copy hosted 3.7.6, package QA riêng, Google test ad unit, ký bằng debug key (example không có keystore release): build exit 0, APK 61,1MB, `mapping.txt` R8 được tạo. Cài lên Pixel, khởi động, không `FATAL EXCEPTION`/ANR.
+
+**Chưa kiểm được ad dưới R8:** SDK chặn đúng thiết kế khi gặp Google test ad unit ở bản release (`canRequestAds` giữ false, log báo ad unit test trong RELEASE sẽ không phục vụ), nên load/show ad không chạy. Đây là bằng chứng guard hoạt động, không phải bằng chứng R8 không làm hỏng đường ad. Muốn kiểm R8 thật cần ad unit production (ngoài phạm vi: không dùng ID thật) hoặc cách khác được owner đồng ý. Ngoài ra là bản ký debug, không phải bản Play.
+
+### 4g. Splash hard-cap 8s với form EEA chậm (2026-11-22)
+
+Bản debug 3.7.6, **không** nâng cap lên 240s. Bằng chứng: `pixel_splash_cap_8s_eea_form.log`. UMP `required` lúc 23:29:07.660; splash cap 8s hết hạn lúc 23:29:14.304 và `REPLACE` về home (form còn mở, người thử chưa bấm); người thử bấm Consent lúc 23:29:19.246 -> `obtained`, SDK init `provider=admob` 23:29:19.313, `applyConsent hasUserConsent=true` 23:29:21. SDK init vẫn hoàn tất đúng sau khi cap đã hết. Một lần, form chờ người bấm (không giả lập mạng chậm); không có ad hiện đè lên form.
+
 ## 5. Checklist host và QA tiếp theo
 
 Chưa có host app pilot. Gates host, telemetry, stop criteria và rollback nằm ở nguồn chuẩn `host_pilot_quickstart_android_admob.md`, `pilot_checklist_android_admob.md` và `host_production_readiness_android_admob.md`; report này không sao chép lại để tránh lệch. Ghi mỗi gate `PASS`/`FAIL`/`NOT RUN`; không suy từ example.
@@ -149,3 +168,5 @@ Thứ tự đề xuất: (1) chốt host app và ownership; (2) dựng build rel
 **Android + AdMob: có thể mở closed pilot có điều kiện khi đủ host gates và owner sign-off — đây không phải bằng chứng rằng example đã đủ cho pilot; hiện chưa GO production rollout. iOS/AppLovin: NO-GO production rollout tới khi có native-device/host verification phù hợp.**
 
 No-go nếu host consent/legal basis chưa xác nhận, request trước consent, ad đè dialog/VIP, reward sai, policy/invalid-traffic warning, crash/ANR tăng hoặc thiếu rollback. Đây là verdict theo evidence, không phải khẳng định SDK không thể dùng production hay chứng nhận pháp lý.
+
+**Cập nhật 2026-11-22 (chỉ app example, không host pilot):** accept, Privacy Options và withdraw chạy đúng hướng an toàn trên một Pixel (4d); sau withdraw, Interstitial/Rewarded/Rewarded Interstitial có thể vắng tới ~4-5 phút (mất doanh thu, không vi phạm consent). Nhánh `earned=false` khi đóng sớm vẫn chưa quan sát được trên native (4c, 4e). Ad dưới R8 chưa kiểm vì guard release chặn test ad unit (4f). Splash cap 8s không cản init sau form chậm, một lần thử (4g). Không cái nào đổi verdict.

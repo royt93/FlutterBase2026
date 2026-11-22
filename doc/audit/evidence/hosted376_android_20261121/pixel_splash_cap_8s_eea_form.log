@@ -1,0 +1,12 @@
+2026-11-22 23:29:06.261 [AdManager] markSplashActive
+2026-11-22 23:29:07.660 [UmpConsent] consent status: required
+2026-11-22 23:29:14.304 [AdManager] splash budget exceeded (8s) — forcing markSplashInactive
+2026-11-22 23:29:14.324 [AdManager] markSplashInactive
+2026-11-22 23:29:14.326 [AdManager] markSplashInactive
+2026-11-22 23:29:14.340 [AdScreen~Router] REPLACE: / → null popupDepth=0
+2026-11-22 23:29:19.246 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=true
+2026-11-22 23:29:19.248 [AdManager] UMP gate → canRequestAds=true (status=obtained)
+2026-11-22 23:29:19.313 [AdManager] initialize start, provider=admob
+2026-11-22 23:29:21.380 [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+2026-11-22 23:29:21.381 [AdMobAdapter] initialize [AdMob] [success]
+2026-11-22 23:29:21.412 [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)

@@ -21,7 +21,10 @@
     "Samsung Settings search was a UI observation in a tab labeled Secure Folder, not an authoritative user-150 package query; package-ID search support and tab-to-user mapping were not verified.",
     "Two earlier live logcat captures ended with code 255 after successful installs; cause unconfirmed, selected reward/dismiss evidence remains saved.",
     "Pixel 2026-11-22: disclosure Cancel passed. Early close without earned was NOT established: Back in countdown did not leave the ad; one Home press (~3s into countdown) produced no earned/dismissed log and a new AdManager singleton (Dart state reset, same PID) with a memory-pressure warning beforehand. Cause unverified; no earned=false callback observed.",
-    "Pixel 2026-11-22 consent: accept, Privacy Options reopen and withdraw observed once. After withdraw, Interstitial/Rewarded/RewardedInterstitial stayed idle until the 5-minute retry scan; cause not verified. Reverse path (accept after withdraw) and network-level npa=1 not established."
+    "Pixel 2026-11-22 consent: accept, Privacy Options reopen and withdraw observed once. After withdraw, Interstitial/Rewarded/RewardedInterstitial stayed idle until the 5-minute retry scan; cause not verified. Reverse path (accept after withdraw) and network-level npa=1 not established.",
+    "Pixel 2026-11-22 run 3 (Close X) is NOT a valid early-close test: run 1 tapped after reward was earned; run 2 screenshot before the tap showed no X. earned=false on early close still not observed natively.",
+    "Release/R8 (2026-11-22, Pixel): example release APK built (exit 0), launched without FATAL/ANR, but the SDK release guard for Google test ad unit IDs kept canRequestAds=false, so ad load/show under R8 was NOT exercised. Debug-signed, not a production signing or Play-delivered build.",
+    "Splash 8s cap with EEA form (2026-11-22, Pixel): one run, debug build, form waited for a human tap, not a simulated slow network."
   ],
   "files": {
     "interstitial.log": {
@@ -110,6 +113,18 @@
     "pixel_privacy_options_form.png": {
       "source_basename": "pixel_qa376r2 local capture (2026-11-22)",
       "sha256": "b496a6394abe355a31a622764e835470965c1a8c2f11a45a966fb8c3519b2ea0"
+    },
+    "pixel_close_x_early_attempts.log": {
+      "source_basename": "pixel_qa376r2 capture (2026-11-22)",
+      "sha256": "77d56ee92ed96b1d5ba9ecaf36fd4ca3e02eec8035ccb4ffbd1d6f3bd350e6b2"
+    },
+    "pixel_close_x_countdown_4s.png": {
+      "source_basename": "pixel_qa376r2 capture (2026-11-22)",
+      "sha256": "4a606389b57d43f27a8700f501cc7ff4e30858d9f007270a202a551f86c24f37"
+    },
+    "pixel_splash_cap_8s_eea_form.log": {
+      "source_basename": "pixel_qa376r2 clean run capture (2026-11-22)",
+      "sha256": "0b4fb1c6d6076e3a7d86e3bf5daf20b8360d960c480d757e3dcb983eb1210886"
     }
   }
 }
