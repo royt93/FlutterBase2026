@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (Privacy Options withdrawal):** after the user submitted "Do not consent", the form-dismiss lifecycle resume arrived while the consent apply was still running, was skipped, and replayed later; the apply's own refill had already run against the still-closed gate and loaded nothing, so Interstitial, Rewarded and Rewarded Interstitial stayed idle until the 5-minute poll (~4-4.5 min, seen twice on a Pixel 7 Pro). The replayed resume now triggers one refill. No consent behavior changes: loads still go out only after the withdrawal is written to the providers. Revenue-only impact, not a policy violation.
+
 ## [3.7.6] - 2026-11-19
 
 - **Docs:** README `maxVipStackDuration` correction added to the 3.7.5 changelog entry; the cap defaults to 90 days, applies to non-stacking grants too, and must be set to `null` or at least 365 days for the annual purchase example.

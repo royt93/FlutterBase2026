@@ -6718,7 +6718,9 @@ class AdManager with WidgetsBindingObserver {
         final skipped = _resumeSkippedForApply;
         _resumeSkippedForApply = null;
         if (skipped != null && identical(_adapter, skipped) && isInitialised) {
-          unawaited(_resumeAdWorkAfterConsent(skipped).catchError((Object e) {
+          unawaited(_resumeAdWorkAfterConsent(skipped)
+              .then((_) => _retryRefillAds())
+              .catchError((Object e) {
             SafeLogger.w(_tag, 'replayed resume threw: $e');
           }));
         }
