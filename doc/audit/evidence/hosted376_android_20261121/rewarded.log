@@ -1,0 +1,12 @@
+2026-11-21 21:35:00.712 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=true
+2026-11-21 21:35:02.097 [AdMobAdapter] initialize [AdMob] [success]
+2026-11-21 21:35:02.105 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-21 21:35:31.193 [AdMobAdapter] loadRewarded [AdMob] [loading]
+2026-11-21 21:35:33.828 [AdMobAdapter] loadRewarded [AdMob] [success]
+2026-11-21 21:40:44.332 [AdScreen] showRewardedAd pre-check result: canShow=true
+2026-11-21 21:40:45.504 [AdMobAdapter] showRewarded [AdMob] [success] shown
+2026-11-21 21:40:45.505 [AdMobAdapter] showRewarded [AdMob] impression
+2026-11-21 21:40:53.313 [AdMobAdapter] showRewarded [AdMob] type=coins amount=10
+2026-11-21 21:41:32.173 [AdMobAdapter] showRewarded [AdMob] dismissed (earned=true)
+2026-11-21 21:41:32.174 [AdMobAdapter] loadRewarded [AdMob] [loading]
+2026-11-21 21:41:34.436 [AdMobAdapter] loadRewarded [AdMob] [success]

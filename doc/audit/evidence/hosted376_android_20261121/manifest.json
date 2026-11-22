@@ -1,0 +1,79 @@
+{
+  "sdk_version": "3.7.6",
+  "sdk_source": "hosted",
+  "sdk_archive_sha256": "7e94a5ea4f65080b2ad316d16ba3539f7831268166a8ef87a682ace0d3368c25",
+  "tested_on": "2026-11-21",
+  "prepared_on": "2026-11-22",
+  "scope": "Selected Android Google test-ad evidence from an isolated debug example consumer, not a production host pilot.",
+  "devices": {
+    "interstitial": "TECNO KJ7",
+    "rewarded": "Samsung S24 Ultra",
+    "rewarded_interstitial": "Samsung S24 Ultra"
+  },
+  "consumer_change": "Example navigation timer changed from 8 to 240 seconds; AdConfig.splashMaxDuration remained 8 seconds. SDK source unchanged.",
+  "log_transform": "Exact process and message allowlist; retain timestamp, tag and callback values; convert source success/loading markers to [success]/[loading]; remove PID/TID and other decorative Unicode symbols. Missing lines do not prove absence of requests, errors or duplicate callbacks.",
+  "image_transform": "Crop Android status bar and re-encode as PNG without source metadata; no changes to ad labels or result text.",
+  "limits": [
+    "Adapter nonPersonalizedAds=true is not network-level proof of npa=1 or Google serving decisions.",
+    "Rewarded Interstitial disclosure accept path only; cancel, early close, error paths and server-side verification not established by this bundle.",
+    "Historical test counts and other formats are not newly executed by this export.",
+    "Samsung Settings search was a UI observation in a tab labeled Secure Folder, not an authoritative user-150 package query; package-ID search support and tab-to-user mapping were not verified.",
+    "Two earlier live logcat captures ended with code 255 after successful installs; cause unconfirmed, selected reward/dismiss evidence remains saved."
+  ],
+  "files": {
+    "interstitial.log": {
+      "source_basename": "logcat.txt",
+      "source_sha256": "f670925f623634c56acc6b219611ef13eb1a7a81b257824349ef04bb1a140821",
+      "sha256": "48c5988cf91dc7d0c5c2694a7bb73053547f43dd8894e46c52c00c1360f37b16",
+      "selected_lines": 12
+    },
+    "rewarded.log": {
+      "source_basename": "s24u_qa376_rewarded.log",
+      "source_sha256": "43ea466fc290583e2da9c419cceed75f8b042a4f16e992c0b18e0e1c16550347",
+      "sha256": "7b58595650fe9ba648a78ae3d72c938e94e4d10b3f182c4dbafc6b082e08df91",
+      "selected_lines": 12
+    },
+    "rewarded_interstitial.log": {
+      "source_basename": "logcat.txt",
+      "source_sha256": "0f40afbeeaf0798972675f700b3fdd5cbb6106d20e27f4943acc31c32daadf91",
+      "sha256": "8503ddb1e171aaad8c7a9f69cc317c4c842868fb5fd952c6c4815f6b3a172c95",
+      "selected_lines": 12
+    },
+    "interstitial_test.png": {
+      "source_basename": "show.png",
+      "source_sha256": "9cdd519d0bbdc976dfb29d0a01ebf33102c92b173f1abc2400bc45440e63bc8f",
+      "sha256": "46d0727afb7a549438ff5dc55dd79463412e47692d968eceb4d851ce055d3877",
+      "cropped_top_pixels": 0
+    },
+    "interstitial_result.png": {
+      "source_basename": "closed.png",
+      "source_sha256": "f4914d3a622638060013b89b96376afd6384594e7b5258997b21a9de3d5114ed",
+      "sha256": "a1c39bbe88553d61d97be3d5bc73024f891c5eb329dd0ec15f5de8cbba66d59e",
+      "cropped_top_pixels": 108
+    },
+    "rewarded_test.png": {
+      "source_basename": "s24u_rewarded_show2.png",
+      "source_sha256": "8f75ce7478b472f4bf0e60f77d037541a36f167b84daf802f7b4a19857329229",
+      "sha256": "3270a7be9c2380621a3677a6b7d54117d4e2dba405aa39434ee54c535e114d81",
+      "cropped_top_pixels": 0
+    },
+    "rewarded_result.png": {
+      "source_basename": "s24u_rewarded_closed2.png",
+      "source_sha256": "7a67ba6555001c9e0543fa7af4cb92cc2c8743fb63b978a66af73b1219476660",
+      "sha256": "081ca2bfece0d8776efb5dc1ef69ac45b99e6890183bc3bd48dbdcd8ce1ae24d",
+      "cropped_top_pixels": 96
+    },
+    "rewarded_interstitial_disclosure.png": {
+      "source_basename": "show2.png",
+      "source_sha256": "877f2fc756a506b0af1f8317a8c685f4981c3b63116a3d7e17b0cf27fd20b61c",
+      "sha256": "1ccc5c7ed5c792538ff99919df103f8cbe3f5171b63d40aded3d2b91805bf562",
+      "cropped_top_pixels": 96
+    },
+    "rewarded_interstitial_test.png": {
+      "source_basename": "show4.png",
+      "source_sha256": "475e306c5c20443f2ffe976f72f909efa9778aa0cbca2b58b2b7596e95333ba6",
+      "sha256": "8ebefa245f78bcf6c64331cd64d3a9b9c764ea1b140bb337baa3ff266270939e",
+      "cropped_top_pixels": 0
+    }
+  }
+}

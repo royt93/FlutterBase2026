@@ -1,0 +1,12 @@
+2026-11-21 17:55:37.335 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=false
+2026-11-21 17:55:38.026 [AdMobAdapter] initialize [AdMob] [success]
+2026-11-21 17:55:38.081 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-21 17:55:53.205 [AdMobAdapter] loadInterstitial [AdMob] [loading]
+2026-11-21 17:55:55.144 [AdMobAdapter] loadInterstitial [AdMob] [success]
+2026-11-21 17:56:43.058 [AdScreen] showInterstitialAd pre-check result: canShow=true
+2026-11-21 17:56:44.322 [AdMobAdapter] showInterstitial [AdMob] [success] shown
+2026-11-21 17:56:44.325 [AdMobAdapter] showInterstitial [AdMob] impression
+2026-11-21 17:57:37.445 [AdMobAdapter] showInterstitial [AdMob] dismissed
+2026-11-21 17:57:37.471 [AdScreen] showInterstitialAd onDoneFlow: result=true
+2026-11-21 17:57:37.473 [AdMobAdapter] loadInterstitial [AdMob] [loading]
+2026-11-21 17:57:39.071 [AdMobAdapter] loadInterstitial [AdMob] [success]

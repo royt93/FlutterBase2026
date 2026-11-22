@@ -1,0 +1,116 @@
+# Audit production — Flutter AdMob/AppLovin SDK 3.7.6
+
+- **Ngày rà soát:** 2026-11-21.
+- **Đối tượng:** `packages/ad_sdk/` và `example/`; Android/iOS; AdMob/AppLovin MAX; offline, lifecycle, trial/VIP, consent và production readiness.
+- **Verdict:** chưa GO rollout production. Android + AdMob có thể cân nhắc closed pilot sau khi host hoàn tất và ký đủ gates. iOS/AppLovin chưa đủ native-device/host evidence.
+- **Giới hạn:** test ads không chứng nhận legal compliance, production fill, revenue hoặc host readiness. Không dùng production IDs/credentials; không tap creative/CTA (chỉ nút đóng X). Source SDK trong repo không thay đổi; audit không sửa hành vi runtime.
+
+## 1. Bản phát hành và test coverage
+
+Pub.dev API xác nhận 3.7.6 phát hành `2026-11-19T13:44:43.420129Z`, Dart `>=3.10.0 <4.0.0`, Flutter `>=3.38.1`. Archive SHA-256:
+
+`7e94a5ea4f65080b2ad316d16ba3539f7831268166a8ef87a682ace0d3368c25`
+
+Disposable consumer `/tmp/ad_sdk_smoke_376_isolated` resolve `source: hosted`, version 3.7.6 và checksum trên. Metadata/checksum xác nhận danh tính package, không tự chứng minh runtime correctness. Historical device evidence round 79 chủ yếu source/runtime 3.7.0/3.7.1; T283 dùng hosted 3.7.1, không phải 3.7.6.
+
+Các suite đã chạy trong phiên:
+
+- Targeted consent suites: 323 pass.
+- Release test-ID/QA-hash suites: 456 pass.
+- `npa_consent_wiring_test.dart` và `admob_behavioral_test.dart`: 142 pass. Đây là số test riêng từng lượt, không cộng thành số test độc lập vì coverage có thể trùng.
+
+## 2. Tổng kết theo hạng mục
+
+| Hạng mục | Bằng chứng | Giới hạn còn lại |
+|---|---|---|
+| Android + AdMob | Hosted 3.7.6 debug consumer: Samsung xác nhận init, Banner, Native và App Open Google test ads; TECNO xác nhận EEA refusal/cached status, adapter init, non-personalized adapter state, Banner và Interstitial load/show/dismiss/reload; S24U xác nhận EEA refusal, init, QA IDs, Rewarded load/show/earned/dismiss và Rewarded Interstitial disclosure accept/load/show/earned/dismiss. | Chưa có host pilot, publisher release artifact/signing/R8 hoặc production inventory evidence. Chưa kiểm disclosure cancel, đóng sớm không earned, load/show failure hoặc SSV end-to-end trong lượt hosted 3.7.6. |
+| iOS + AdMob | Có Flutter integration/source/tests; Google UMP/ATT phụ thuộc native plugin. | Chưa có iPhone thật xác minh ATT, UMP và ad gate. Round 79 ghi CI simulator bỏ ATT/UMP; T256 còn physical-device check. Simulator/build pass không thay thế consent verification. |
+| AppLovin MAX | Có adapter/bridge và fake-bridge lifecycle/safety tests. | Chưa có native-device/credentials evidence Android/iOS trong phạm vi đã rà. Fake tests không chứng minh load/show/reward/dismiss hoặc mediation thật. Consent writes fire-and-forget, không xác nhận native đã nhận thành công. |
+| Offline/online | Source có offline gates/reconnect path; round 79 ghi một lượt tắt/bật Wi-Fi thật trên TECNO với request suppression và MREC recovery. | Một thiết bị/lượt Wi-Fi không đại diện cellular, captive portal, mọi format/provider hoặc host. Online không bảo đảm fill. |
+| Lifecycle/memory | Có slot state machine, disposal và regression coverage. Round 79 có 50 vòng init/destroy với fake adapter kiểm listener detach. | Fake tests và `dumpsys meminfo` snapshots không chứng minh không rò native heap. T267 chưa có frame-presentation attribution hợp lệ; không có FPS/jank hoặc zero-leak claim. |
+| Trial 24 giờ | `FirstInstallVipGrace.auto` mặc định release 24h; example debug 30 giây, có test coverage. | Android clear-data có thể reset trial/ledger; reinstall phụ thuộc Auto Backup. Đây là trade-off product đã chấp thuận, không phải paid-license anti-fraud guarantee. |
+| VIP không backend | AVP2 Ed25519, expiry/bundle binding, local redeemed ledger và signed CRL. Activation cần mạng; VIP đang hiệu lực dùng offline. | Không bảo đảm globally single-use giữa thiết bị hoặc revocation tức thì khi chưa cập nhật CRL. Không dùng làm paid license chống chia sẻ. Smoke không dùng private key thật của owner. |
+| Consent/policy | UMP flow, TCF mapping, release test-ID guard và QA fleet luôn hoạt động cả debug/release. TECNO và S24U quan sát refusal, adapter `nonPersonalizedAds=true`; mỗi thiết bị dùng UMP test hash do chính thiết bị ghi log. | UMP `notRequired` không chứng minh consent mọi thị trường; `obtained`/`canRequestAds=true` không đồng nghĩa personalized consent. Publisher chịu trách nhiệm CMP/messages, disclosures, privacy URLs, app-ads.txt, placements và legal basis. MAX age status cố định lúc init theo product contract. |
+
+## 3. Consent source review
+
+Round 44 ghi findings ở 2.9.23, không đủ để khẳng định 3.7.6 còn cùng lỗi. Built-in `consent_dialog.dart` không còn trong source hiện hành. Release consent-footgun guard và regression tests đã có; host/release E2E chưa được chứng minh trong phiên này.
+
+**Host trust boundary:** `setConsent()` mặc định `qualifiesAsConsentFlow: true`; host có thể gọi affirmative consent để đánh dấu flow explicit và gỡ footgun block. SDK không xác minh giá trị đến từ CMP phù hợp hay chỉ hard-coded host config. Publisher chỉ được cấp affirmative consent dựa trên consent/legal basis phù hợp; API boolean không phải legal certification.
+
+Source hiện tại:
+
+- `_applyUmpConsentResult` kết hợp UMP status với `IabStorage.tcfAllowsPersonalisedAds()`. Purpose 1/3/4 không đủ consent thì không cho personalized mapping; đọc store lỗi fail-closed. Không diễn giải `obtained` thành accept đơn thuần.
+- `AdMobAdapter.applyConsent()` map `hasUserConsent=false` sang `nonPersonalizedAds=true`; `RealGmaBridge` truyền vào `AdRequest`. Runtime log adapter state không phải phép bắt tham số network/native request hoặc quyết định phân phối phía Google.
+- Khi có TCF string, consent forwarding không ghi đè MAX `setHasUserConsent`; MAX tự đọc vendor state. Không có TCF vẫn dùng boolean cho non-CMP integration; writes fire-and-forget.
+- Pre-init `setDoNotSell` và preservation của host/QA test-device IDs có regression tests. Fallback conservative có coverage timeout/offline/provider errors, không phải legal certification.
+
+Không có defect runtime consent được xác nhận từ các lượt này. UMP refusal có thể trả `canRequestAds=true`; không dùng giá trị đó làm bằng chứng personalized consent hoặc bảo đảm fill.
+
+## 4. Hosted 3.7.6 device evidence
+
+### Samsung — smoke ban đầu
+
+Disposable debug app `com.roy.admobwrapper.audit376`, Samsung S24 Ultra (serial không lưu trong report); `AD_PROVIDER_ADMOB=true`, `SKIP_ATT=true`, `SKIP_SPLASH_AD=true`; Google test App ID/ad units, không production credentials.
+
+- UMP `notRequired`; AdMob init pass.
+- Hai Banner và Native Google test creatives hiển thị; Native validator báo “No implementation issues found”.
+- App Open có nhãn `Quảng cáo thử nghiệm`, hiện sau resume thứ hai; cold-start guard skip lượt đầu; đóng bằng system Back.
+- Interstitial/Rewarded/Rewarded Interstitial load callbacks thành công; không verify show/reward/dismiss trên Samsung.
+- QA app force-stop và uninstall khỏi user 0 thành công. User 150 bị `SecurityException: Shell does not have permission to access user 150`; package presence/removal ở profile đó chưa xác minh. Không cài/clear/uninstall host `com.roy.admobwrapper`.
+
+### TECNO — EEA và Interstitial diagnostic
+
+Owner chọn TECNO KJ7 cho mọi phiên. ADB xác nhận model TECNO KJ7; serial không lưu trong report. Trước cài, QA package vắng trong user 0; APK metadata xác nhận package QA riêng. Ping IP thành công; không đổi Wi-Fi/VPN. Kết quả ping chỉ xác nhận IP reachability, không bảo đảm mọi endpoint ads/CMP.
+
+Bản consumer dùng hosted 3.7.6, Google test units và UMP hash của chính TECNO. Diagnostic copy chỉ tăng timer điều hướng example từ 8 lên 240 giây trong `/tmp`; `AdConfig.splashMaxDuration` vẫn 8 giây, SDK vẫn có log `forcing markSplashInactive`. Không sửa source SDK/repo hoặc tắt consent/safety gates.
+
+**Đính chính thời gian UMP:** các khoảng 24 giây trước đây tính từ form presentation tới callback bao gồm thời gian chờ ADB chọn nút. Không đủ bằng chứng kết luận UMP mất 24 giây để xử lý hoặc hard-cap 8 giây gây mất callback; tăng timer không phải bằng chứng fix lỗi.
+
+Lượt có log liên tục tại `/tmp/qa376_interstitial_20261121/`:
+
+1. TECNO run: EEA refusal được áp dụng; một lượt form chưa được bấm trước timeout 180 giây trả `required`/gate-closed. Không tính làm consent-completion evidence. Sau đó rerun trên cùng owner-selected TECNO dùng UMP test hash riêng thiết bị, cached refusal, AdMob init/17 QA IDs và Interstitial Google test-ad load/show/dismiss/callback/reload pass. Banner Google test creatives cũng đã hiển thị trên TECNO. QA package được uninstall khỏi TECNO user 0.
+2. Owner sau đó chọn S24U. Tab Samsung Settings > Apps có nhãn `Thư mục bảo mật`, không phải đã xác minh là work profile. Tìm `com.roy.admobwrapper.audit376` không có kết quả; chưa kiểm chứng tìm kiếm này hỗ trợ package ID hay tab đó tương ứng user 150. Vì vậy đây chỉ là quan sát UI, không chứng minh package vắng trong user 150. Owner-profile query không thấy QA package trước lượt cài; shell không có quyền đọc user 150.
+3. UMP test hash lấy riêng từ S24U logcat, không lưu giá trị vào report. Hosted 3.7.6 debug QA build dùng Google test IDs, package riêng `com.roy.admobwrapper.audit376`, `UMP_EEA_DEBUG=true`, `SKIP_ATT=true`, `SKIP_SPLASH_AD=true`.
+4. S24U EEA test form hiện; chọn `Do not consent`. Log: `status=obtained`, `formShown=true`, `canRequestAds=true`; TCF purpose bits chặn personalization. AdMob init success; 17 QA device IDs; `nonPersonalizedAds=true`.
+5. Secondary preload logs xác nhận Rewarded và Rewarded Interstitial load callbacks success; Rewarded load sẵn. VIP auto-grant toggle vẫn OFF.
+6. Bấm Rewarded `Watch ad for +10 coins`; creative hiển thị `Quảng cáo thử nghiệm`. UI sau dismiss: `Coins: 10`, `Last: earned`; reward earned, callback và dismiss pass. Không bật VIP auto-grant, không nhập SSV user ID, không tap creative/CTA.
+7. QA package force-stop/uninstall khỏi S24U owner profile thành công; truy vấn owner profile không còn package. Quan sát Settings trước cài chỉ có search không trả kết quả trong tab `Thư mục bảo mật`; trạng thái user 150 chưa xác minh. Không suy cleanup owner profile sang profile khác.
+
+**Phạm vi PASS:** EEA refusal/cache recognition, TCF refusal mapping, adapter `nonPersonalizedAds=true`, AdMob init, QA test-device config; Banner test creatives và Interstitial load/show/dismiss/callback/reload trên TECNO; Rewarded load/show/earned/dismiss và Rewarded Interstitial disclosure accept/load/show/earned/dismiss trên S24U. Rewarded Interstitial disclosure được accept; Google test creative ghi `Quảng cáo thử nghiệm`, reward callback `type=Coins amount=10`, UI `Coins: 10` và `Last: shown=true earned=true`; VIP auto-grant vẫn OFF. Không có network-level/native request capture chứng minh tham số `npa=1` của từng request hoặc personalized serving phía Google. Không suy diagnostic debug/example thành production host evidence.
+
+Evidence tối thiểu đã lọc và lưu trong [`evidence/hosted376_android_20261121/`](evidence/hosted376_android_20261121/): ba log callback cho Interstitial, Rewarded và Rewarded Interstitial; sáu ảnh test creative/disclosure/kết quả. [`manifest.json`](evidence/hosted376_android_20261121/manifest.json) ghi scope, phép biến đổi, SHA-256 nguồn và từng file xuất. Log giữ timestamp/tag/callback, bỏ PID/TID, device hashes/serial và mọi dòng ngoài allowlist; marker loading/success được đổi sang chữ. Ảnh cắt status bar và bỏ metadata, giữ nhãn test và kết quả UI. Đây là trích đoạn, không dùng chứng minh không có lỗi, request khác hoặc callback trùng.
+
+Raw log vẫn chỉ nằm local trong `/tmp/qa376_interstitial_20261121/`, `/tmp/s24u_qa376_rewarded.log` và `/tmp/s24u_rewarded_interstitial_20261121/`. Capture gốc gồm cả tag `UserMessagingPlatform`, có thể chứa consent strings; không đưa raw log vào repo hoặc chia sẻ. Hai capture trước kết thúc mã 255 sau khi install báo `Success`; chưa xác định nguyên nhân kết thúc, nhưng evidence reward/dismiss đã lưu đủ. Không chạy lại test ads trong lượt lưu evidence ngày 2026-11-22; source SDK không đổi.
+
+## 5. Checklist host và QA tiếp theo
+
+Chưa có host app pilot. Chỉ cân nhắc closed pilot Android + AdMob khi release owner ký đủ gates:
+
+- Host pin đúng hosted version/checksum; app/package, publisher IDs, privacy URLs, domain/app-ads.txt và UMP messages thuộc đúng owner.
+- Release-shaped artifact ký đúng publisher, kiểm R8; không dùng Google sample IDs trong production release. QA chỉ dùng test inventory; QA-device hashes luôn giữ cả debug/release, không opt-out.
+- Host verify consent trước request, refusal/withdrawal/fallback, ad formats, dialog/VIP/trial gates và reward chỉ cấp khi `earned == true`.
+- Có telemetry tối thiểu, cohort nhỏ, rollback/stop owner. Ghi mỗi gate `PASS`/`FAIL`/`NOT RUN`; không suy từ example.
+
+Mọi lượt QA tiếp theo phải dùng thiết bị owner chọn, xác minh serial/model, package riêng, Google test IDs và hash UMP của chính thiết bị. Giữ log liên tục; trả lời test form trước deadline, tách thời gian người/ADB chờ khỏi thời gian xử lý. Nếu ad không rõ test labeling thì dừng, không tap creative/CTA. Trước show phải có consent gate mở, init/load success và slot ready; không bypass safety để ép show. Sau lượt kiểm lại cleanup đúng user/profile, không suy sang profile khác.
+
+## 6. Nguồn đối chiếu
+
+- `doc/audit/audit_round79_full_sdk.md` — historical source/device evidence, chủ yếu 3.7.0/3.7.1.
+- `doc/audit/pilot_checklist_android_admob.md`, `host_pilot_quickstart_android_admob.md`, `host_production_readiness_android_admob.md` — host gates, telemetry, rollout/rollback.
+- `doc/audit/audit_round44_consolidated.md` — historical consent findings, không thay thế xác minh hiện hành.
+- `doc/task/inprogress/T256-admob-age-treatment-api-migration.md` — iPhone physical consent check còn deferred.
+- `doc/task/done/T283-hosted-package-partner-smoke.md` — hosted 3.7.1 consumer evidence.
+- `packages/ad_sdk/lib/src/core/{ad_manager,ad_consent,ump_consent,iab_storage,ad_screen}.dart` — orchestration/consent/show guards.
+- `packages/ad_sdk/lib/src/adapters/{admob_adapter,gma_bridge}.dart` — init, per-request NPA và native bridge.
+- `packages/ad_sdk/lib/src/consent/consent_fallback.dart` và tests liên quan — conservative fallback.
+- `packages/ad_sdk/test/{npa_consent_wiring,admob_behavioral,tcf_personalisation_consent,r44_set_do_not_sell_pre_init,r44_applovin_tcf_gate,r73_set_do_not_sell_keeps_admob_request_config}_test.dart` — regression coverage.
+- `packages/ad_sdk/lib/src/vip/{_first_install_guard,signed_vip_key,vip_manager,_redeemed_key_ledger,vip_revocation_provider}.dart` — trial/AVP2/ledger/CRL.
+- Pub.dev metadata: `https://pub.dev/api/packages/applovin_admob_sdk`.
+- Evidence đã lọc: [`evidence/hosted376_android_20261121/manifest.json`](evidence/hosted376_android_20261121/manifest.json) — callback logs, ảnh test/disclosure/kết quả và SHA-256; raw evidence và consumer copy/lockfile chỉ ở `/tmp`.
+
+## 7. Verdict
+
+**Android + AdMob: conditional GO cho closed pilot sau khi đủ host gates và owner sign-off; hiện chưa GO production rollout. iOS/AppLovin: NO-GO production rollout tới khi có native-device/host verification phù hợp.**
+
+No-go nếu host consent/legal basis chưa xác nhận, request trước consent, ad đè dialog/VIP, reward sai, policy/invalid-traffic warning, crash/ANR tăng hoặc thiếu rollback. Đây là verdict theo evidence, không phải khẳng định SDK không thể dùng production hay chứng nhận pháp lý.
