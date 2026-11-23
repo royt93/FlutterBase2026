@@ -1,0 +1,16 @@
+# Hosted 3.7.7, Pixel 7 Pro, 2026-11-23. Accept first, then Privacy Options -> Do not consent mid-session.
+# Only format/npa/gdpr/has_tc_string kept from ad requests; no URL, ids, hashes or TC string.
+11-23 11:01:48.043  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=fa
+11-23 11:02:17.231  REQ interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:02:17.239  REQ interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:02:17.249  REQ interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:02:17.255  REQ interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:02:49.817  SDK [AdManager] personalisation withdrawn — discarding cached fullscreen ads and rebuilding inline ads
+11-23 11:02:49.817  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=fa
+11-23 11:02:49.837  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=fa
+11-23 11:02:49.839  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=fa
+11-23 11:02:49.851  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=fa
+11-23 11:02:50.002  REQ interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:02:50.020  REQ interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:02:50.038  REQ interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:02:50.056  REQ interstitial_mb npa=1 gdpr=1 has_tc_string=true
