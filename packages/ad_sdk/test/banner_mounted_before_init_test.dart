@@ -449,4 +449,71 @@ void main() {
       await tester.pump(const Duration(milliseconds: 2500));
     },
   );
+
+  testWidgets(
+    'personalisation withdrawn while a route covers the banner: no new load '
+    'until the route is popped',
+    (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugConnectivityReady = false;
+      AdManager().debugConnectivityChanged(true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugConfig = _config;
+      AdManager().debugSetAdapter(adapter);
+
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(body: Column(children: [const BannerAdWidget()])),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.byKey(const ValueKey('fake-banner-view')),
+        findsOneWidget,
+        reason: 'precondition: banner is live',
+      );
+
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('2')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      final loadsBefore = adapter.loadBannerCalls;
+      AdManager().debugResetBannerCooldown();
+
+      // e.g. a privacy-settings route over the banner page withdraws personalisation
+      AdManager().personalisationRevision.value++;
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        adapter.loadBannerCalls,
+        loadsBefore,
+        reason:
+            'a covered AdMob banner must not be re-requested: it has no '
+            'pause API, so a hidden AdView would keep refreshing',
+      );
+
+      // Returning to the page must bring the banner back.
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        find.byKey(const ValueKey('fake-banner-view')),
+        findsOneWidget,
+        reason: 'popping back must reload the banner dropped while covered',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
 }

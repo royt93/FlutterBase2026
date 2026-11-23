@@ -555,6 +555,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     // build-time reinit path above; this consent-driven one is independent
     // of it and knew nothing about it either.
     if (widget.active == false || _pausedByController) return;
+    // Covered by another route: didPopNext reloads on return, and a hidden
+    // AdMob view has no pause API (it would keep refreshing under the route).
+    if (_subscribedRoute?.isCurrent == false) return;
     if (_initScheduled) return;
     _initScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -573,7 +576,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
           mgr.isInitialised &&
           !mgr.isVIPMember() &&
           widget.active != false &&
-          !_pausedByController) {
+          !_pausedByController &&
+          _subscribedRoute?.isCurrent != false) {
         _initScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _initScheduled = false;
