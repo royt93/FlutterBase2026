@@ -31,7 +31,9 @@
     "Hosted 3.7.7 Pixel guarded early-close (Close node 88x84, tapped ~6.8s after show, before onEarnedReward): the ad did NOT close and the reward was still granted ~2s later; earned=false on early close is still not observable natively with this test creative. No creative click this run.",
     "npa on the wire (Pixel, hosted 3.7.7, via Google Ads debug logging, not an external proxy): refuse run showed npa=1 on the interstitial requests, accept run showed npa absent. Only the first four fullscreen requests (App Open, Interstitial, Rewarded, Rewarded Interstitial; the log labels all of them format=interstitial_mb, told apart by slotname) of one run each; Banner/MREC/Native, later requests, accept-after-withdraw and other devices not checked.",
     "npa mid-session withdraw (Pixel, hosted 3.7.7, GMS debug log): 4 fullscreen requests (the four fullscreen ad units) before withdraw had npa absent; the same 4 units after had npa=1. One run, fullscreen formats only, request log comes from GMS on the device, not an independent proxy.",
-    "npa on inline formats (Pixel, hosted 3.7.7, GMS debug log): after Do not consent, 2 banner, 3 MREC and 3 native requests plus the 4 fullscreen ones all carried npa=1. Refuse branch only for inline formats (no accept control run for them); banner and MREC share one ad unit, told apart by the size key; one run, one device."
+    "npa on inline formats (Pixel, hosted 3.7.7, GMS debug log): after Do not consent, 2 banner, 3 MREC and 3 native requests plus the 4 fullscreen ones all carried npa=1. Refuse branch only for inline formats (no accept control run for them); banner and MREC share one ad unit, told apart by the size key; one run, one device.",
+    "npa on inline formats, accept control (Pixel, hosted 3.7.7, GMS debug log): after Consent, 2 banner, 3 MREC, 3 native and the 4 fullscreen requests all had npa absent; pairs with the refuse run. One run per branch, one device, AdMob only; still the GMS log, not an independent capture.",
+    "rdp on the wire (Pixel, hosted 3.7.7, GMS debug log): before doNotSell the first fullscreen requests had rdp absent; after doNotSell was applied the new Banner and fullscreen requests carried rdp=1. One run, one device, AdMob only, GMS log not an independent capture; the US-states UMP path and a doNotSell set before init were not exercised."
   ],
   "files": {
     "interstitial.log": {
@@ -156,6 +158,14 @@
     "hosted377_pixel_npa_inline_formats.txt": {
       "source_basename": "pixel_qa377 Ads debug-log capture, inline formats (2026-11-23)",
       "sha256": "4293f8ee91501d1102116fea01660d96ead5131dd56069250b83efdebe35527e"
+    },
+    "hosted377_pixel_npa_inline_formats_accept.txt": {
+      "source_basename": "pixel_qa377 Ads debug-log capture, inline accept control (2026-11-23)",
+      "sha256": "e1e87876f0314ac7ada07be585249e4107a9c057bd68ef8648d7ebe2a421cb4d"
+    },
+    "hosted377_pixel_rdp_on_the_wire.txt": {
+      "source_basename": "pixel_qa377 Ads debug-log capture, rdp (2026-11-23)",
+      "sha256": "c48f72d126e4de6b65be43b1d176fb1a804e411ebaa0261752132acf39e46304"
     }
   }
 }

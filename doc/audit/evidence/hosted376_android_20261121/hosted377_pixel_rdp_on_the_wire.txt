@@ -1,0 +1,12 @@
+# Hosted 3.7.7, Pixel 7 Pro, 2026-11-23. Consent chosen at the form, then Do-not-sell (CCPA) toggled on in the example Consent demo and applied; then the Banner demo opened (no creative touched).
+# Kept per request: unit, size/format key, npa, rdp, gdpr. No URL, ids, hashes or TC string.
+11-23 11:55:17.431  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+11-23 11:55:46.649  REQ unit=rewarded format=interstitial_mb npa=<absent> rdp=<absent> gdpr=1
+11-23 11:55:46.656  REQ unit=rewardedInterstitial format=interstitial_mb npa=<absent> rdp=<absent> gdpr=1
+11-23 11:55:46.664  REQ unit=interstitial format=interstitial_mb npa=<absent> rdp=<absent> gdpr=1
+11-23 11:55:46.672  REQ unit=appOpen format=interstitial_mb npa=<absent> rdp=<absent> gdpr=1
+11-23 11:56:19.741  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=true (hasUserConsent=true, doNotSell=true)
+11-23 11:56:19.820  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=true (hasUserConsent=true, doNotSell=true)
+11-23 11:56:49.253  REQ unit=banner/mrec-unit format=411x64_as npa=<absent> rdp=1 gdpr=1
+11-23 11:56:49.264  REQ unit=interstitial format=interstitial_mb npa=<absent> rdp=1 gdpr=1
+11-23 11:56:49.271  REQ unit=banner/mrec-unit format=411x64_as npa=<absent> rdp=1 gdpr=1

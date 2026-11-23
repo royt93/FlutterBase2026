@@ -1,0 +1,14 @@
+# Hosted 3.7.7, Pixel 7 Pro, 2026-11-23. Package data cleared (pm clear), Consent chosen at the form, then Banner, MREC and Native demo screens opened (no creative touched).
+# Control for hosted377_pixel_npa_inline_formats.txt (refuse branch). No URL, ids, hashes or TC string.
+11-23 11:46:02.462  REQ unit=appOpen format=interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:02.463  REQ unit=interstitial format=interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:02.469  REQ unit=rewarded format=interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:02.477  REQ unit=rewardedInterstitial format=interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:05.799  REQ unit=banner/mrec-unit format=411x64_as npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:05.840  REQ unit=banner/mrec-unit format=411x64_as npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:30.718  REQ unit=banner/mrec-unit format=300x250_as npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:30.746  REQ unit=banner/mrec-unit format=300x250_as npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:30.772  REQ unit=banner/mrec-unit format=300x250_as npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:55.701  REQ unit=native format=320x50_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:55.709  REQ unit=native format=320x50_mb npa=<absent> gdpr=1 has_tc_string=true
+11-23 11:46:55.720  REQ unit=native format=320x50_mb npa=<absent> gdpr=1 has_tc_string=true
