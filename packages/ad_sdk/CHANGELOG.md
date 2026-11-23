@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.10] - 2026-11-23
+
 - **Fixed (fullscreen refill after resume):** every resume closes the consent gate while the consent re-check runs. A fullscreen reload that landed in that window (for example the interstitial the user had just closed, whose own reload runs on dismiss) was skipped with reason `consent`, and the post-check refill ran only after a VIP lapse, so the slot stayed idle until the 5-minute poll. The refill now also runs when a load was skipped as `consent` during the re-check (a review caught that running it on every resume also cleared slot backoff and re-requested idle/cooldown slots on ordinary resumes; a second test pins that). Red before the change, green after (`test/resume_consent_window_refill_test.dart`, which holds the re-check open through a debug seam). Found by an independent review; whether Android really delivers the dismiss callback after `resumed` was not reproduced on a device, so the real-world frequency is unknown. Trimmed code to stay under the 2048 KB `lib` size gate.
 
 - **Fixed (AdMob banner/MREC re-requested under a covering route):** withdrawing personalisation, or the consent gate reopening, re-created and re-requested a mounted banner/MREC even while another route covered it. A covered AdMob view has no pause API, so that hidden view would keep refreshing under the route (the policy risk `didPushNext` exists to stop). Both handlers now skip while the subscribed route is not current; `didPopNext` reloads on return. Red before the change (`test/banner_mounted_before_init_test.dart`, loads 1 -> 2), green after; the same guard is applied to `MrecAdWidget`, which has no test of its own for this path.
