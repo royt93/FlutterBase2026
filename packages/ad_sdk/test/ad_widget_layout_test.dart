@@ -2,6 +2,8 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'golden_tolerance.dart';
+
 Widget _wrap(Widget child, {Size size = const Size(360, 640)}) {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
@@ -14,6 +16,7 @@ Widget _wrap(Widget child, {Size size = const Size(360, 640)}) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(useTolerantGoldens);
 
   group('Visual widget structure tests', () {
     tearDown(AdLoadingDialog.resetState);

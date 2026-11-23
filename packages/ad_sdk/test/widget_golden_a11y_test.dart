@@ -2,6 +2,8 @@ import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'golden_tolerance.dart';
+
 // Goldens: dark/RTL/large-text variants of SDK-owned visuals.
 // Accessibility: tap target + contrast + label guidelines on the same widgets.
 // Regenerate: flutter test test/widget_golden_a11y_test.dart --update-goldens
@@ -9,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 // Whole-app boundary: byType(MaterialApp) resolves to the first route's
 // boundary and silently omits dialogs/overlays.
 const _shot = ValueKey('golden-shot');
+const _panelShot = ValueKey('panel-shot');
 
 const _admobCfg = AdConfig(
   provider: AdProvider.admob,
@@ -67,6 +70,7 @@ Future<BuildContext> _pumpHost(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(useTolerantGoldens);
 
   setUp(() => AdManager().debugConfig = _admobCfg);
   tearDown(() {
@@ -91,6 +95,21 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
         expect(find.text('Loading…'), findsOneWidget);
+        // Platform-independent layout check: tolerant goldens alone let a
+        // 50px taller card through (measured 0.6-1.6% diff).
+        final card = find
+            .ancestor(
+              of: find.text('Loading…'),
+              matching: find.byType(Container),
+            )
+            .first;
+        final size = tester.getSize(card);
+        expect(size.width, inInclusiveRange(120, 200));
+        expect(size.height, greaterThanOrEqualTo(120));
+        if (v.key != 'large_text') {
+          expect(size.height, 120, reason: 'default text keeps 120 height');
+          expect(size.width, lessThanOrEqualTo(130));
+        }
         await expectLater(
           find.byKey(_shot),
           matchesGoldenFile('goldens/ad_loading_dialog_${v.key}.png'),
@@ -176,10 +195,19 @@ void main() {
           _app(
             Scaffold(
               body: Center(
+                // Fixed frame: a bare crop of a 16px-tall panel turns a few
+                // anti-aliased text pixels into a double-digit diff percent.
                 child: RepaintBoundary(
-                  child: RevenuePanel(
-                    compact: v.value.$2,
-                    debugModeOverride: true,
+                  key: _panelShot,
+                  child: SizedBox(
+                    width: 320,
+                    height: 160,
+                    child: Center(
+                      child: RevenuePanel(
+                        compact: v.value.$2,
+                        debugModeOverride: true,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -189,7 +217,7 @@ void main() {
         );
         await tester.pump();
         await expectLater(
-          find.byType(RevenuePanel),
+          find.byKey(_panelShot),
           matchesGoldenFile('goldens/revenue_panel_${v.key}.png'),
         );
       });
