@@ -33,7 +33,8 @@
     "npa mid-session withdraw (Pixel, hosted 3.7.7, GMS debug log): 4 fullscreen requests (the four fullscreen ad units) before withdraw had npa absent; the same 4 units after had npa=1. One run, fullscreen formats only, request log comes from GMS on the device, not an independent proxy.",
     "npa on inline formats (Pixel, hosted 3.7.7, GMS debug log): after Do not consent, 2 banner, 3 MREC and 3 native requests plus the 4 fullscreen ones all carried npa=1. Refuse branch only for inline formats (no accept control run for them); banner and MREC share one ad unit, told apart by the size key; one run, one device.",
     "npa on inline formats, accept control (Pixel, hosted 3.7.7, GMS debug log): after Consent, 2 banner, 3 MREC, 3 native and the 4 fullscreen requests all had npa absent; pairs with the refuse run. One run per branch, one device, AdMob only; still the GMS log, not an independent capture.",
-    "rdp on the wire (Pixel, hosted 3.7.7, GMS debug log): before doNotSell the first fullscreen requests had rdp absent; after doNotSell was applied the new Banner and fullscreen requests carried rdp=1. One run, one device, AdMob only, GMS log not an independent capture; the US-states UMP path and a doNotSell set before init were not exercised."
+    "rdp on the wire (Pixel, hosted 3.7.7, GMS debug log): before doNotSell the first fullscreen requests had rdp absent; after doNotSell was applied the new Banner and fullscreen requests carried rdp=1. One run, one device, AdMob only, GMS log not an independent capture; the US-states UMP path and a doNotSell set before init were not exercised.",
+    "Init before consent (Pixel, hosted 3.7.7, GMS debug log), two cases, both with canRequestAds=false: (A) EEA form left open and unanswered: for the first ~180 s (the UMP form wait) neither the SDK adapter nor GMA initialized; when the SDK gave up waiting (log: consent form dismiss timed out after 180s, status=required) it still ran adapter.initialize and GMA initialized (log Initializing on bg thread) with the user never having answered; (B) offline, UMP fetch failed (status unknown): GMA also initialized. In both cases NO ad request was sent. What GMA initialization itself transmits was NOT captured (no network capture). One run per case, one device."
   ],
   "files": {
     "interstitial.log": {
@@ -166,6 +167,10 @@
     "hosted377_pixel_rdp_on_the_wire.txt": {
       "source_basename": "pixel_qa377 Ads debug-log capture, rdp (2026-11-23)",
       "sha256": "c48f72d126e4de6b65be43b1d176fb1a804e411ebaa0261752132acf39e46304"
+    },
+    "hosted377_pixel_init_before_consent.txt": {
+      "source_basename": "pixel_qa377 init-before-consent captures (2026-11-23)",
+      "sha256": "f019c162ebd4362c7f2c2c8b3b741e64bb47c87cfd0751c661cf07225fcddf9f"
     }
   }
 }

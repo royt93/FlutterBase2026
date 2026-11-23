@@ -1,0 +1,35 @@
+# Hosted 3.7.7, Pixel 7 Pro, 2026-11-23. Does GMA initialize or send ad requests while canRequestAds=false?
+# Two runs, package data cleared (pm clear) before each. Only fixed event labels kept; no ids, URLs or hashes.
+
+## Run A: EEA debug geography, UMP form left open and unanswered (~3 minutes, then BACK)
+11-23 12:06:29.455  GMA reads App ID from manifest
+11-23 12:06:32.072  SDK [UmpConsent] consent status: required
+11-23 12:06:38.479  SDK [AdManager] splash budget exceeded (8s) — forcing markSplashInactive
+11-23 12:09:32.196  SDK [UmpConsent] consent form: consent form dismiss timed out after 180s
+11-23 12:09:32.238  SDK [UmpConsent] done canRequestAds=false status=required formShown=true
+11-23 12:09:32.243  SDK [AdManager] UMP gate → canRequestAds=false (status=required)
+11-23 12:09:32.282  SDK [AdManager] UMP inconclusive (status=required, err=consent form dismiss timed out after 180s) — keeping the persisted consent value instead 
+11-23 12:09:34.301  SDK [AdManager] autoRequestUmpConsent — running UMP before adapter init
+11-23 12:09:34.301  SDK [AdManager] gate closed until UMP resolves (SDK-owned consent flow)
+11-23 12:09:34.313  SDK [AdManager] ⏭ auto UMP skipped — host already called requestUmpConsent()
+11-23 12:09:34.458  GMA initialize started
+11-23 12:09:35.424  SDK [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+11-23 12:09:35.424  SDK [AdMobAdapter] initialize [AdMob]
+11-23 12:09:35.472  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+
+## Run B: Wi-Fi and mobile data off, so the UMP fetch fails (status unknown)
+11-23 12:09:56.442  GMA reads App ID from manifest
+11-23 12:09:58.004  SDK [UmpConsent] requestConsentInfoUpdate failed: 2:Error making request.
+11-23 12:09:58.020  SDK [AdManager] UMP gate → canRequestAds=false (status=unknown)
+11-23 12:09:58.043  SDK [AdManager] UMP inconclusive (status=unknown, err=2:Error making request.) — keeping the persisted consent value instead of downgrading it
+11-23 12:09:59.202  SDK [AdManager] autoRequestUmpConsent — running UMP before adapter init
+11-23 12:09:59.202  SDK [AdManager] gate closed until UMP resolves (SDK-owned consent flow)
+11-23 12:09:59.209  SDK [AdManager] ⏭ auto UMP skipped — host already called requestUmpConsent()
+11-23 12:09:59.370  GMA initialize started
+11-23 12:10:05.487  SDK [AdManager] splash budget exceeded (8s) — forcing markSplashInactive
+11-23 12:10:09.413  SDK [AdMobAdapter] initialize [AdMob] testDeviceIds: 0 from host config + 17 QA fleet (always on) = 17 total
+11-23 12:10:09.435  SDK [AdMobAdapter] initialize [AdMob]
+11-23 12:10:09.494  SDK [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+11-23 12:11:00.238  SDK [AdMobAdapter] preloadBanner [AdMob] ⏭ skipped — gate closed
+11-23 12:11:00.239  SDK [AdMobAdapter] preloadMrec [AdMob] ⏭ skipped — gate closed
+11-23 12:11:00.975  SDK [UmpConsent] consent status: required
