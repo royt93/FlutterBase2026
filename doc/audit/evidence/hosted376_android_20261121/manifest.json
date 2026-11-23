@@ -28,7 +28,8 @@
     "Pixel 2026-11-23 after-fix check used the LOCAL source (path dependency, commit 35c19ea), NOT hosted 3.7.6. Withdraw reloaded all four fullscreen slots within ~1.5s once; not repeated across devices.",
     "Pixel 2026-11-23 on LOCAL source: clearSdkData() safe scope returned normally (no TimeoutException); duration not measured; host-key preservation not tested; timeout path not exercised.",
     "Hosted 3.7.7 (sha256 7aab5d2d22cb7ae3c3129d77ad9f2e3c5ac1c8333913cba141a3f4e0deb38984), Pixel, 2026-11-23: withdraw reloaded all four fullscreen slots in ~1.4s; clearSdkData completed in 66ms (debug build, empty-ish data, not a hang test). One accidental click on a Google test ad creative during an early-close attempt (tap coordinates came from a full-screen Close node); no install; that attempt is NOT evidence for earned=false.",
-    "Hosted 3.7.7 Pixel guarded early-close (Close node 88x84, tapped ~6.8s after show, before onEarnedReward): the ad did NOT close and the reward was still granted ~2s later; earned=false on early close is still not observable natively with this test creative. No creative click this run."
+    "Hosted 3.7.7 Pixel guarded early-close (Close node 88x84, tapped ~6.8s after show, before onEarnedReward): the ad did NOT close and the reward was still granted ~2s later; earned=false on early close is still not observable natively with this test creative. No creative click this run.",
+    "npa on the wire (Pixel, hosted 3.7.7, via Google Ads debug logging, not an external proxy): refuse run showed npa=1 on the interstitial requests, accept run showed npa absent. Only the first interstitial_mb requests of one run each; other formats, later requests, accept-after-withdraw and other devices not checked."
   ],
   "files": {
     "interstitial.log": {
@@ -141,6 +142,10 @@
     "hosted377_pixel_early_close_guarded.log": {
       "source_basename": "pixel_qa377 guarded early-close capture (2026-11-23)",
       "sha256": "7fb576173a18e51447af351acf33fc1c06720bb7fd1d8e21f27456fced67c965"
+    },
+    "hosted377_pixel_npa_on_the_wire.txt": {
+      "source_basename": "pixel_qa377 Ads debug-log capture (2026-11-23)",
+      "sha256": "2984b5ff5e01958da8d1ecac291b397390fabe000f414d3a32a9e3e00f42bfc3"
     }
   }
 }

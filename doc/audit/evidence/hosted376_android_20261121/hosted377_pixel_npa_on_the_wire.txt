@@ -1,0 +1,4 @@
+# Ad request consent params seen via Google Ads debug logging (hosted 3.7.7 example, Pixel 7 Pro, 2026-11-23).
+# Only these keys are kept: format, npa, gdpr, has_tc_string(bool). No URL, ids, hashes or TC string.
+REFUSE (Do not consent): 4 requests, distinct: interstitial_mb npa=1 gdpr=1 has_tc_string=true
+ACCEPT (Consent): 4 requests, distinct: interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
