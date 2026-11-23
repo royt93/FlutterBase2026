@@ -1098,7 +1098,9 @@ class VipManager {
       var base = now;
       VipEntry? baseEntry;
       for (final e in _entries) {
-        if (_isLive(e, now) && e.expiresAt.isAfter(base)) {
+        if (_isLive(e, now) &&
+            !_isRevokedEntry(e) &&
+            e.expiresAt.isAfter(base)) {
           base = e.expiresAt;
           baseEntry = e;
         }
@@ -1709,18 +1711,19 @@ class VipManager {
   /// Also note stacking: with `stack: true` a later legitimate key's entry has
   /// already absorbed the revoked window into its own `expiresAt`, so clamping
   /// the revoked entry does not claw that part back.
+  /// Revoked, or holding a revoked key's window (Round-23 QC: one "+1 day for
+  /// watching an ad" tap moved a revoked 30-day grant into a `WATCH_AD` row the
+  /// CRL could not name). Also keeps a revoked entry from being a stack base.
+  bool _isRevokedEntry(VipEntry e) {
+    final keys =
+        _revokedKeyIds.map((kid) => normaliseKey('SIGNED_$kid')).toSet();
+    return keys.contains(e.key) || e.stackedFrom.any(keys.contains);
+  }
+
   Future<void> _clampRevokedEntries() async {
     if (_revokedKeyIds.isEmpty || _entries.isEmpty) return;
 
-    final revokedEntryKeys =
-        _revokedKeyIds.map((kid) => normaliseKey('SIGNED_$kid')).toSet();
-    // Round-23 QC (reviewer C, MAJOR) — an entry that stacked onto a revoked
-    // one is holding that key's window and has to be clamped with it. Without
-    // this, one "+1 day for watching an ad" tap moved a revoked 30-day grant
-    // into a `WATCH_AD` row the CRL could not name.
-    bool isRevoked(VipEntry e) =>
-        revokedEntryKeys.contains(e.key) ||
-        e.stackedFrom.any(revokedEntryKeys.contains);
+    final isRevoked = _isRevokedEntry;
     final cutoff = _effectiveNow().add(revokedGraceWindow);
 
     var clamped = 0;

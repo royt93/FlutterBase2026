@@ -310,6 +310,72 @@ void main() {
     // exact case. A CRL whose kid case differs from the key's therefore
     // clamped an already-granted window while still handing out a brand-new
     // grant for the very same revoked key.
+    // Review of 3.7.10 — a NEW paid key redeemed while the stack base entry is
+    // already revoked-and-clamped inherited the revoked key's provenance, so the
+    // next CRL pass clamped the whole new window to ~24h, not just the part
+    // carried over from the revoked one.
+    test(
+      'a valid key stacked on an already-revoked entry keeps its own window',
+      () async {
+        final mgr = VipManager(prefs, vipEntriesStore: store);
+        await mgr.load();
+        addTearDown(mgr.dispose);
+
+        final codeA = await mintVipKey(
+          keyPair,
+          seconds: const Duration(days: 30).inSeconds,
+          kid: 'leaked-a',
+        );
+        expect(
+          (await mgr.redeemSignedKey(codeA, publicKeyBase64: pub)).status,
+          VipRedeemStatus.success,
+        );
+
+        final crl1 = await mintCrl(
+          keyPair,
+          issuedAtEpoch: 5000,
+          kids: ['leaked-a'],
+        );
+        await mgr.refreshRevocationList(
+          publicKeyBase64: pub,
+          revocationProvider: _FakeRevocationProvider(crl1),
+        );
+        expect(
+          mgr.expiresAt!.difference(DateTime.now()).inHours,
+          lessThanOrEqualTo(24),
+          reason: 'precondition: A was clamped to the grace window',
+        );
+
+        // Within the grace window the user redeems a different, valid key.
+        final codeB = await mintVipKey(
+          keyPair,
+          seconds: const Duration(days: 30).inSeconds,
+          kid: 'good-b',
+        );
+        expect(
+          (await mgr.redeemSignedKey(codeB, publicKeyBase64: pub)).status,
+          VipRedeemStatus.success,
+        );
+
+        // A later CRL (still not naming good-b) is applied.
+        final crl2 = await mintCrl(
+          keyPair,
+          issuedAtEpoch: 5001,
+          kids: ['leaked-a'],
+        );
+        await mgr.refreshRevocationList(
+          publicKeyBase64: pub,
+          revocationProvider: _FakeRevocationProvider(crl2),
+        );
+
+        expect(
+          mgr.expiresAt!.difference(DateTime.now()).inDays,
+          greaterThanOrEqualTo(28),
+          reason: 'good-b was never revoked: its paid 30 days must survive',
+        );
+      },
+    );
+
     test('a CRL revokes a kid regardless of case', () async {
       final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();

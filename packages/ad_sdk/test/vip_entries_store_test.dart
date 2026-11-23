@@ -157,6 +157,34 @@ void main() {
         reason: 'legacy value must be cleared once safely migrated');
   });
 
+  // Review of 3.7.10 — a write that fails while reads still work left the old
+  // secure copy in place, and getRaw preferred any non-null secure value over
+  // the fallback just written: a refund revoke came back, or a paid redeem was
+  // lost while its key was already burned in the one-time ledger.
+  test('a failed secure write is not shadowed by the stale secure copy',
+      () async {
+    final storage = _MockSecureStorage();
+    var persisted = '[{"key":"OLD"}]'; // what secure storage already holds
+    var failWrites = false;
+    when(() => storage.read(key: any(named: 'key')))
+        .thenAnswer((_) async => persisted);
+    when(() =>
+            storage.write(key: any(named: 'key'), value: any(named: 'value')))
+        .thenAnswer((invocation) async {
+      if (failWrites) throw Exception('keystore write failed');
+      persisted = invocation.namedArguments[#value] as String;
+    });
+    final store = VipEntriesStore(prefs, secureStorage: storage);
+
+    expect(await store.getRaw(), '[{"key":"OLD"}]', reason: 'precondition');
+
+    failWrites = true;
+    await store.setRaw('[{"key":"NEW"}]'); // lands in the fallback only
+
+    expect(await store.getRaw(), '[{"key":"NEW"}]',
+        reason: 'the newer write must win over the older secure copy');
+  });
+
   test('secure storage read() throwing fails open to null', () async {
     final storage = _MockSecureStorage();
     when(() => storage.read(key: any(named: 'key')))

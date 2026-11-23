@@ -69,7 +69,20 @@ class VipEntriesStore {
   /// and migration hasn't happened yet.
   Future<String?> getRaw() async {
     final secure = await _readSecure();
-    if (secure != null) return secure;
+    if (secure != null) {
+      // A fallback exists only because a secure WRITE failed (a later good
+      // write clears it), so it is newer than this secure copy. Prefer it only
+      // while the store still cannot write; if it can, the fallback is the M6
+      // forgery case and the secure copy wins.
+      final newer = _legacyPrefs.getVipEntriesFallbackRaw();
+      if (newer != null &&
+          !_lastSecureReadErrored &&
+          !await _secureStorageWorks()) {
+        lastReadWasUntrustedFallback = false;
+        return newer;
+      }
+      return secure;
+    }
 
     // T71 — some devices have a permanently broken Keystore: `setRaw()`
     // falls back to AdPreferences (checksum-prefixed) whenever the secure
