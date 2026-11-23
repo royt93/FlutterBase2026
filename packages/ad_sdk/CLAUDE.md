@@ -27,7 +27,12 @@ Run commands from `packages/ad_sdk/` unless noted.
 - **Mint VIP revocation list:** `dart tool/vip_crl_mint.dart --priv-file .vip-private-key --kids DEMO1 --revision 1`
 - **Verify signed exports:** `dart run tool/verify_compliance_report.dart <path>`, `dart run tool/verify_adproof.dart <path-to-exported.adproof>`, `dart run tool/bypass_audit_replay.dart <path>`, `dart run tool/incident_replay.dart <path>`
 
+- **Before any on-device integration run:** read `example/integration_test/README.md`; run `adb shell pm clear <applicationId>` first. Count suites with `ls example/integration_test/*_test.dart | wc -l` (do not trust numbers in docs).
+- **`CHANGELOG.md` has a 256KB ceiling** (pub.dev). It has overflowed before; move old entries to `CHANGELOG_ARCHIVE.md` when it nears the limit (check `wc -c CHANGELOG.md`).
+
 ## Big-picture architecture
+
+Deep dive: `doc/architecture.md`. Integration/splash/UMP guides: `README.md`, `doc/SPLASH_SETUP.md`, `doc/UMP_SETUP.md`, `doc/AD_PROMPT_FLUTTER.MD` (Appendix D = migration guide).
 
 This package is a Flutter SDK that exposes one public barrel, `lib/applovin_admob_sdk.dart`, for AdMob and AppLovin MAX. Public API stability is guarded by `test/api_golden_test.dart`; intentional public changes require a `CHANGELOG.md` entry and regenerated `test/goldens/public_api_surface.txt`.
 
