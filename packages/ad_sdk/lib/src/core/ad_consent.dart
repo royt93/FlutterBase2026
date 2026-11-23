@@ -75,12 +75,10 @@ class AdConsent {
 /// !hasUserConsent)`, i.e. `npa=1`) is applied separately by
 /// [AdMobAdapter.applyConsent], which [AdManager] calls alongside this function.
 ///
-/// **Important**: AdMob's `updateRequestConfiguration` REPLACES the entire
-/// global config — it does not merge. Call sites must therefore include
-/// every field they care about, including `testDeviceIds`. Without this,
-/// the test-device list registered during initialize would be wiped on the
-/// first `setConsent` call, and the developer would start seeing real ads
-/// (risk of policy violation).
+/// AdMob's `updateRequestConfiguration` MERGES in `google_mobile_ads` 9.2.0:
+/// only non-null fields are applied, so a host-set `maxAdContentRating`
+/// survives (read back on a Galaxy S24 Ultra). `testDeviceIds` is still sent
+/// every time so the QA fleet is never dropped.
 /// T120 — pure description of what [applyConsentToProviders] would send to
 /// each provider for a given consent + config, with no platform-channel
 /// calls. Returned by [simulateConsentOutcome].

@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Docs/tests (verified on a Galaxy S24 Ultra):** the MREC pre-init fix shipped in 3.7.10 is now confirmed on a device: early-mounted MREC height 0 on the 3.7.8 widget, 250 with the fix, same as a late-mounted one (`example/integration_test/mrec_mounted_before_init_test.dart`). A host-set `maxAdContentRating` survives `initialize()` and `setConsent()` (`host_request_configuration_preserved_test.dart` reads the real configuration back); the `ad_consent.dart` comment that said `updateRequestConfiguration` replaces the whole config was wrong for `google_mobile_ads` 9.2.0 and is corrected. No behaviour change.
+
 ## [3.7.10] - 2026-11-23
 
 - **Fixed (fullscreen refill after resume):** every resume closes the consent gate while the consent re-check runs. A fullscreen reload that landed in that window (for example the interstitial the user had just closed, whose own reload runs on dismiss) was skipped with reason `consent`, and the post-check refill ran only after a VIP lapse, so the slot stayed idle until the 5-minute poll. The refill now also runs when a load was skipped as `consent` during the re-check (a review caught that running it on every resume also cleared slot backoff and re-requested idle/cooldown slots on ordinary resumes; a second test pins that). Red before the change, green after (`test/resume_consent_window_refill_test.dart`, which holds the re-check open through a debug seam). Found by an independent review; whether Android really delivers the dismiss callback after `resumed` was not reproduced on a device, so the real-world frequency is unknown. Trimmed code to stay under the 2048 KB `lib` size gate.
