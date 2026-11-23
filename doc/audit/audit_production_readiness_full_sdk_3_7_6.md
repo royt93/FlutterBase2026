@@ -125,6 +125,22 @@ Kết luận: không thêm bằng chứng nào cho nhánh `earned=false` khi đ�
 
 Bản debug 3.7.6, **không** nâng cap lên 240s. Bằng chứng: `pixel_splash_cap_8s_eea_form.log`. UMP `required` lúc 23:29:07.660; splash cap 8s hết hạn lúc 23:29:14.304 và `REPLACE` về home (form còn mở, người thử chưa bấm); người thử bấm Consent lúc 23:29:19.246 -> `obtained`, SDK init `provider=admob` 23:29:19.313, `applyConsent hasUserConsent=true` 23:29:21. SDK init vẫn hoàn tất đúng sau khi cap đã hết. Một lần, form chờ người bấm (không giả lập mạng chậm); không có ad hiện đè lên form.
 
+### 4h. Bảng PASS/FAIL/NOT RUN theo quickstart (2026-11-23, app example, KHÔNG phải host pilot)
+
+Chạy trên **app example** (package QA riêng, Google test ads, Pixel 7 Pro, Android 17), không phải app host; owner đã chốt không dùng host pilot. Nguồn SDK: các mục 1-3 lấy từ lượt hosted 3.7.6 (mục 4a-4g). Các lần kiểm sau fix (withdraw refill, mạng, `clearSdkData`) dùng **source local** (commit `35c19ea`, path dependency), **không** phải hosted 3.7.6.
+
+| Mục | Kết quả | Ghi chú |
+|---|---|---|
+| SDK version + source | PASS có điều kiện | hosted 3.7.6, SHA khớp (4a); lượt 2026-11-23 là source local, ghi rõ |
+| 1 Test ads | PASS (một thiết bị) | Interstitial, Rewarded, Rewarded Interstitial, App Open load/show/dismiss; reward chỉ khi `earned=true`. Nhánh `earned=false` đóng sớm: NOT RUN (chưa quan sát native, 4c/4e) |
+| 2 Consent | PASS (một thiết bị) | Consent, Do not consent, Privacy Options (4d). Sau withdraw, 4 slot nạp lại trong ~1,5 giây với source đã fix (`pixel_withdraw_refill_after_fix.log`); hosted 3.7.6 chậm ~4-4,5 phút. `npa=1` mức network: NOT RUN |
+| 3 Nền → mở lại | PASS (quan sát) | App Open bỏ qua lần resume đầu (cold-start guard), lần sau mới hiện; chưa kiểm hết các điều kiện dialog/VIP/trial trên máy |
+| 4 Mạng | PASS (quan sát, source local) | tắt/bật Wi-Fi và data: `network back online -> refilling ad slots`; chưa thử mạng di động riêng, chưa thử offline khi request đang bay |
+| 5 Xóa dữ liệu | PASS một phần (source local) | `clearSdkData()` safe scope trả về bình thường, UI ghi `safe scope done`, không có `TimeoutException`. **Chưa đo thời gian** (lệnh đo bị treo), chưa seed key riêng của host để kiểm "còn nguyên" (NOT RUN). Nếu gặp `TimeoutException`: ghi **chưa xác nhận xóa**, không phải thành công; không gặp trong lượt này, nên đường timeout NOT RUN (cần storage treo thật) |
+| 6 Build release | PASS một phần | build release exit 0 và R8 mapping sinh ra (4f); guard chặn test ad unit ở release hoạt động. Ad unit production, `app-ads.txt`, UMP message đúng app, signing Play: NOT RUN |
+
+Log đã làm sạch: `evidence/hosted376_android_20261121/pixel_*`. Không có consent string, GAID hay hash thiết bị trong log lưu (đã kiểm regex 32 ký tự hex).
+
 ## 5. Checklist host và QA tiếp theo
 
 Chưa có host app pilot. Gates host, telemetry, stop criteria và rollback nằm ở nguồn chuẩn `host_pilot_quickstart_android_admob.md`, `pilot_checklist_android_admob.md` và `host_production_readiness_android_admob.md`; report này không sao chép lại để tránh lệch. Ghi mỗi gate `PASS`/`FAIL`/`NOT RUN`; không suy từ example.

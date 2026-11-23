@@ -24,7 +24,9 @@
     "Pixel 2026-11-22 consent: accept, Privacy Options reopen and withdraw observed once. After withdraw, Interstitial/Rewarded/RewardedInterstitial stayed idle until the 5-minute retry scan; cause not verified. Reverse path (accept after withdraw) and network-level npa=1 not established.",
     "Pixel 2026-11-22 run 3 (Close X) is NOT a valid early-close test: run 1 tapped after reward was earned; run 2 screenshot before the tap showed no X. earned=false on early close still not observed natively.",
     "Release/R8 (2026-11-22, Pixel): example release APK built (exit 0), launched without FATAL/ANR, but the SDK release guard for Google test ad unit IDs kept canRequestAds=false, so ad load/show under R8 was NOT exercised. Debug-signed, not a production signing or Play-delivered build.",
-    "Splash 8s cap with EEA form (2026-11-22, Pixel): one run, debug build, form waited for a human tap, not a simulated slow network."
+    "Splash 8s cap with EEA form (2026-11-22, Pixel): one run, debug build, form waited for a human tap, not a simulated slow network.",
+    "Pixel 2026-11-23 after-fix check used the LOCAL source (path dependency, commit 35c19ea), NOT hosted 3.7.6. Withdraw reloaded all four fullscreen slots within ~1.5s once; not repeated across devices.",
+    "Pixel 2026-11-23 on LOCAL source: clearSdkData() safe scope returned normally (no TimeoutException); duration not measured; host-key preservation not tested; timeout path not exercised."
   ],
   "files": {
     "interstitial.log": {
@@ -125,6 +127,10 @@
     "pixel_splash_cap_8s_eea_form.log": {
       "source_basename": "pixel_qa376r2 clean run capture (2026-11-22)",
       "sha256": "0b4fb1c6d6076e3a7d86e3bf5daf20b8360d960c480d757e3dcb983eb1210886"
+    },
+    "pixel_withdraw_refill_after_fix.log": {
+      "source_basename": "pixel_qa376r6 local-source capture (2026-11-23)",
+      "sha256": "bdcf141c02f64f9092f066fad1d680764b24c3a55de4293201bdd41f42754679"
     }
   }
 }
