@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (AdMob banner mounted before init):** a `BannerAdWidget` already on the first frame, before `AdManager().initialize()` finished, never painted its banner. At that moment no config exists, so `isAdMobProvider` is false and `didPush()` took the AppLovin branch, which never raised the AdMob `_admobIsTop` flag; the widget then showed a blank 72 px placeholder for good while the log said `loadBanner ✅`. Measured on a Galaxy S24 Ultra: early-mounted banner height 0, the same widget mounted later 56. `didPush()` now raises the flag for any provider (it is only read on the AdMob path). This is the usual shape of a real app, a banner sitting on the main screen. Covered by `test/banner_mounted_before_init_test.dart` (red without the fix) and `example/integration_test/banner_mounted_before_init_test.dart` (3 runs red before, 2 green after).
+
 ## [3.7.8] - 2026-11-23
 
 - **Fixed (loading dialog readability):** `AdLoadingDialog` tinted its card and "Loading…" text from the host theme, but it always sits on a dark scrim, so a light-theme host got black text on a dark card (measured contrast 1.43:1, WCAG minimum 4.5:1). The content is now always white. The 120x120 card also grew a fixed height, so text scaled to 2x overflowed by 14 px; it now keeps 120x120 as a minimum and grows with the text, capped at 200 px wide so a long `adLoadingMessage` wraps (centered) instead of stretching the card.

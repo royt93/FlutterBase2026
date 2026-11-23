@@ -731,12 +731,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
       // adapter was rebuilt around ownership in rounds 30–31; the widget kept
       // writing the flag directly, and the widget wins because it writes last.
       mgr.setBannerRoutePaused(this, false);
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _admobIsTop.value = true;
-      });
     }
+    // Also for a widget mounted before initialize() finished: the provider is
+    // unknown then (isAdMobProvider is false with no config), and the AdMob
+    // surface stayed a blank placeholder forever because `_admobIsTop` was
+    // never raised. It is only read on the AdMob path, so raising it under
+    // AppLovin is harmless.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _admobIsTop.value = true;
+    });
     super.didPush();
   }
 
