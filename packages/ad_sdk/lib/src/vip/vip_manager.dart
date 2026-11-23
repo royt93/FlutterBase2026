@@ -1097,9 +1097,10 @@ class VipManager {
       // entries (not just this key) so grants from every source add up.
       var base = now;
       VipEntry? baseEntry;
+      final revokedKeys = _revokedEntryKeys;
       for (final e in _entries) {
         if (_isLive(e, now) &&
-            !_isRevokedEntry(e) &&
+            !_isRevokedEntry(e, revokedKeys) &&
             e.expiresAt.isAfter(base)) {
           base = e.expiresAt;
           baseEntry = e;
@@ -1714,16 +1715,17 @@ class VipManager {
   /// Revoked, or holding a revoked key's window (Round-23 QC: one "+1 day for
   /// watching an ad" tap moved a revoked 30-day grant into a `WATCH_AD` row the
   /// CRL could not name). Also keeps a revoked entry from being a stack base.
-  bool _isRevokedEntry(VipEntry e) {
-    final keys =
-        _revokedKeyIds.map((kid) => normaliseKey('SIGNED_$kid')).toSet();
-    return keys.contains(e.key) || e.stackedFrom.any(keys.contains);
-  }
+  Set<String> get _revokedEntryKeys =>
+      _revokedKeyIds.map((kid) => normaliseKey('SIGNED_$kid')).toSet();
+
+  bool _isRevokedEntry(VipEntry e, Set<String> keys) =>
+      keys.contains(e.key) || e.stackedFrom.any(keys.contains);
 
   Future<void> _clampRevokedEntries() async {
     if (_revokedKeyIds.isEmpty || _entries.isEmpty) return;
 
-    final isRevoked = _isRevokedEntry;
+    final revokedKeys = _revokedEntryKeys;
+    bool isRevoked(VipEntry e) => _isRevokedEntry(e, revokedKeys);
     final cutoff = _effectiveNow().add(revokedGraceWindow);
 
     var clamped = 0;

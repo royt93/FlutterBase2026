@@ -185,6 +185,92 @@ void main() {
         reason: 'the newer write must win over the older secure copy');
   });
 
+  // Review of 3.7.10 — a write that fails while reads still work left the old
+  // secure copy in place, and getRaw preferred any non-null secure value over
+  // the fallback just written: a refund revoke came back, or a paid redeem was
+  // lost while its key was already burned in the one-time ledger.
+  test(
+    'a failed secure write is not shadowed by the stale secure copy',
+    () async {
+      final storage = _MockSecureStorage();
+      var persisted = '[{"key":"OLD"}]'; // what secure storage already holds
+      var failWrites = false;
+      when(
+        () => storage.read(key: any(named: 'key')),
+      ).thenAnswer((_) async => persisted);
+      when(
+        () => storage.write(
+          key: any(named: 'key'),
+          value: any(named: 'value'),
+        ),
+      ).thenAnswer((invocation) async {
+        if (failWrites) throw Exception('keystore write failed');
+        persisted = invocation.namedArguments[#value] as String;
+      });
+      final store = VipEntriesStore(prefs, secureStorage: storage);
+
+      expect(await store.getRaw(), '[{"key":"OLD"}]', reason: 'precondition');
+
+      failWrites = true;
+      await store.setRaw('[{"key":"NEW"}]'); // lands in the fallback only
+
+      expect(
+        await store.getRaw(),
+        '[{"key":"NEW"}]',
+        reason: 'the newer write must win over the older secure copy',
+      );
+    },
+  );
+
+  // Review of the fix above: the newer-fallback rule must not depend on the
+  // Keystore STAYING broken. A transient write failure followed by a healthy
+  // probe used to hand back the stale secure copy again.
+  test(
+    'a fallback newer than the secure copy survives a healed Keystore',
+    skip:
+        'known gap, see T292: needs a revision counter to tell a newer '
+        'fallback from an M6 forgery once the Keystore works again',
+    () async {
+      final storage = _MockSecureStorage();
+      var persisted = '[{"key":"OLD"}]';
+      var failWrites = false;
+      String? probe;
+      when(() => storage.read(key: any(named: 'key'))).thenAnswer(
+        (inv) async =>
+            inv.namedArguments[#key] == _secureKey ? persisted : probe,
+      );
+      when(
+        () => storage.write(
+          key: any(named: 'key'),
+          value: any(named: 'value'),
+        ),
+      ).thenAnswer((invocation) async {
+        if (failWrites) throw Exception('transient keystore write failure');
+        if (invocation.namedArguments[#key] == _secureKey) {
+          persisted = invocation.namedArguments[#value] as String;
+        } else {
+          probe = invocation.namedArguments[#value] as String;
+        }
+      });
+      when(
+        () => storage.delete(key: any(named: 'key')),
+      ).thenAnswer((_) async {});
+      final store = VipEntriesStore(prefs, secureStorage: storage);
+
+      failWrites = true;
+      await store.setRaw('[{"key":"NEW"}]'); // only the fallback has it
+      failWrites = false; // the Keystore recovers before the next read
+
+      expect(
+        await store.getRaw(),
+        '[{"key":"NEW"}]',
+        reason:
+            'the newer paid/revoked state must not be replaced by the '
+            'older secure copy just because the Keystore works again',
+      );
+    },
+  );
+
   test('secure storage read() throwing fails open to null', () async {
     final storage = _MockSecureStorage();
     when(() => storage.read(key: any(named: 'key')))

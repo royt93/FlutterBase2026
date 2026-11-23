@@ -376,6 +376,40 @@ void main() {
       },
     );
 
+    // Review follow-up — the direct addVip(stack: true) path ("+N days for
+    // watching an ad") must not take a revoked-and-clamped entry as its base
+    // either, or the CRL pass clamps the whole new window back to the grace.
+    test('a WATCH_AD stack on a revoked, clamped entry keeps its own window',
+        () async {
+      final mgr = VipManager(prefs, vipEntriesStore: store);
+      await mgr.load();
+      addTearDown(mgr.dispose);
+
+      final codeA = await mintVipKey(keyPair,
+          seconds: const Duration(days: 30).inSeconds, kid: 'leaked-w');
+      await mgr.redeemSignedKey(codeA, publicKeyBase64: pub);
+      final crl1 = await mintCrl(keyPair, issuedAtEpoch: 6000, kids: ['leaked-w']);
+      await mgr.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl1),
+      );
+      expect(mgr.expiresAt!.difference(DateTime.now()).inHours,
+          lessThanOrEqualTo(24),
+          reason: 'precondition: A was clamped');
+
+      await mgr.addVip(
+          key: 'WATCH_AD', duration: const Duration(days: 7), stack: true);
+      final crl2 = await mintCrl(keyPair, issuedAtEpoch: 6001, kids: ['leaked-w']);
+      await mgr.refreshRevocationList(
+        publicKeyBase64: pub,
+        revocationProvider: _FakeRevocationProvider(crl2),
+      );
+
+      expect(mgr.expiresAt!.difference(DateTime.now()).inDays,
+          greaterThanOrEqualTo(6),
+          reason: 'the 7 watched-ad days were never revoked');
+    });
+
     test('a CRL revokes a kid regardless of case', () async {
       final mgr = VipManager(prefs, vipEntriesStore: store);
       await mgr.load();
