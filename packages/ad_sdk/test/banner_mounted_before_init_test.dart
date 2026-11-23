@@ -257,4 +257,87 @@ void main() {
       await tester.pump(const Duration(milliseconds: 2500));
     },
   );
+
+  // --- review follow-ups (2026-11-23) --------------------------------------
+
+  Future<_BannerCountingAdapter> initAdMobNow() async {
+    final adapter = _BannerCountingAdapter();
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugResetBannerCooldown();
+    AdManager().debugConnectivityReady = false;
+    AdManager().debugConnectivityChanged(true);
+    AdManager().debugVipManager = _FakeVip(false);
+    AdManager().debugConfig = _config;
+    AdManager().debugSetAdapter(adapter);
+    return adapter;
+  }
+
+  testWidgets('hidden (active:false) banner shows once it is activated', (
+    tester,
+  ) async {
+    await initAdMobNow();
+    Widget app(bool active) => MaterialApp(
+      navigatorObservers: [adRouteObserver],
+      home: Scaffold(
+        body: Column(children: [BannerAdWidget(active: active)]),
+      ),
+    );
+    await tester.pumpWidget(app(false));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('fake-banner-view')), findsNothing);
+
+    await tester.pumpWidget(app(true));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.byKey(const ValueKey('fake-banner-view')),
+      findsOneWidget,
+      reason:
+          'didPush raises the AdMob flag independently of `active`; a '
+          'guard on active would leave this blank after activation',
+    );
+    await tester.pump(const Duration(milliseconds: 2500));
+  });
+
+  testWidgets(
+    'route pushed in the same frame as the mount: banner paints on pop',
+    (tester) async {
+      await initAdMobNow();
+      final navKey = GlobalKey<NavigatorState>();
+      // Runs before the banner's own didPush post-frame callback (registered
+      // earlier), so the route is already on top when that callback fires.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        navKey.currentState?.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('2')),
+          ),
+        );
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(body: Column(children: [const BannerAdWidget()])),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('2'), findsOneWidget, reason: 'precondition: covered');
+
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(
+        find.byKey(const ValueKey('fake-banner-view')),
+        findsOneWidget,
+        reason:
+            'a stale didPush callback must not raise the flag while the '
+            'route is covered, or didPopNext no-ops and the banner stays blank',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
 }

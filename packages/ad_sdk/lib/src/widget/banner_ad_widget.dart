@@ -738,7 +738,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget>
     // never raised. It is only read on the AdMob path, so raising it under
     // AppLovin is harmless.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || _subscribedRoute?.isCurrent == false) return;
       _admobIsTop.value = true;
     });
     super.didPush();
