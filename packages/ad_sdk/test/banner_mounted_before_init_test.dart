@@ -202,4 +202,59 @@ void main() {
       await tester.pump(const Duration(milliseconds: 2500));
     },
   );
+
+  testWidgets(
+    'route pushed over a pre-init banner then popped still paints it',
+    (tester) async {
+      final adapter = _BannerCountingAdapter();
+      final vip = _FakeVip(false);
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugConnectivityReady = false;
+      AdManager().debugConnectivityChanged(true);
+
+      await tester.pumpWidget(host(const BannerAdWidget()));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        AdManager().isAdMobProvider,
+        isFalse,
+        reason: 'precondition: provider unknown before init',
+      );
+      final nav = tester.state<NavigatorState>(find.byType(Navigator));
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('2')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        AdManager().isAdMobProvider,
+        isFalse,
+        reason: 'still unknown while covered, before init',
+      );
+      // init finishes while the banner is covered
+      AdManager().debugVipManager = vip;
+      AdManager().debugConfig = _config;
+      AdManager().debugSetAdapter(adapter);
+      AdManager().initRevision.value++;
+      await tester.pump(const Duration(milliseconds: 100));
+
+      nav.pop();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(
+        find.byKey(const ValueKey('fake-banner-view')),
+        findsOneWidget,
+        reason:
+            'after returning to the route the banner must be requested '
+            'and drawn, not left as a blank placeholder',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
 }

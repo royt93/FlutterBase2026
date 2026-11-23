@@ -59,6 +59,50 @@ double _adHeightUnder(WidgetTester tester, Key key) {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets(
+    'route pushed over a pre-init banner then popped still paints it',
+    (tester) async {
+      final hostKey = GlobalKey<_HostState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [adRouteObserver],
+          home: _Host(key: hostKey),
+        ),
+      );
+      // let didPush's post-frame callback run, then cover the banner BEFORE init
+      await tester.pump(const Duration(milliseconds: 300));
+      final nav = tester.state<NavigatorState>(find.byType(Navigator));
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('2')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+
+      var done = false;
+      await AdManager().initialize(
+        config: _config,
+        onComplete: (ok, _) => done = ok,
+      );
+      for (var i = 0; i < 120 && !done; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(done, isTrue);
+      await AdManager().vip?.revokeAll();
+      await tester.pump(const Duration(seconds: 1));
+
+      nav.pop();
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+        if (_adHeightUnder(tester, const ValueKey('early')) > 0) break;
+      }
+      final early = _adHeightUnder(tester, const ValueKey('early'));
+      // ignore: avoid_print
+      print('BANNER_COVERED early=$early');
+      expect(early, greaterThan(0), reason: 'must paint after the route pops');
+    },
+  );
+
   testWidgets('early-mounted banner paints like a late-mounted one', (
     tester,
   ) async {
