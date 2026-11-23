@@ -101,6 +101,38 @@ void main() {
     }
   });
 
+  group('AdLoadingDialog long message', () {
+    testWidgets('card stays bounded and wraps instead of stretching', (
+      tester,
+    ) async {
+      AdManager().debugConfig = const AdConfig(
+        provider: AdProvider.admob,
+        admob: AdMobConfig(
+          bannerId: 'ca-app-pub-3940256099942544/6300978111',
+          interstitialId: 'ca-app-pub-3940256099942544/1033173712',
+          appOpenId: 'ca-app-pub-3940256099942544/9257395921',
+          rewardedId: 'ca-app-pub-3940256099942544/5224354917',
+        ),
+        adLoadingMessage:
+            'Loading advertisement, please wait a moment while it prepares…',
+      );
+      final ctx = await _pumpHost(tester);
+      AdLoadingDialog.show(ctx);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      final card = find.ancestor(
+        of: find.textContaining('Loading advertisement'),
+        matching: find.byType(Container),
+      );
+      expect(card, findsWidgets);
+      final width = tester.getSize(card.first).width;
+      expect(width, lessThanOrEqualTo(200), reason: 'card must not stretch');
+      expect(tester.takeException(), isNull);
+      AdLoadingDialog.dismiss();
+      await tester.pump();
+    });
+  });
+
   group('TopToast goldens', () {
     for (final v in <String, (ThemeData, TextDirection, double)>{
       'light': (ThemeData.light(), TextDirection.ltr, 1.0),

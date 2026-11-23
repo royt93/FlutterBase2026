@@ -309,6 +309,7 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                   child: Container(
                     constraints: const BoxConstraints(
                       minWidth: 120,
+                      maxWidth: 200,
                       minHeight: 120,
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -345,6 +346,7 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                         const SizedBox(height: 14),
                         Text(
                           widget.loadingText,
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: base.withValues(alpha: 0.82),
                             fontSize: 13,

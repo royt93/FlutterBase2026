@@ -75,6 +75,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
     expect(tile, findsOneWidget, reason: 'HomePage must list the Banner tile');
+    await tester.ensureVisible(tile);
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(tile);
     await _pumpFor(tester, 10000);
     expect(find.text('Banner demo'), findsOneWidget);

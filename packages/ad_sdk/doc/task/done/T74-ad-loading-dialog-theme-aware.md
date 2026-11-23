@@ -21,3 +21,8 @@ Dialog là 1 "glass bubble" nổi trên bất cứ thứ gì đằng sau nó (th
 TDD: 2 test mới trong `ad_loading_dialog_test.dart` — dựng `MaterialApp(theme: ThemeData.dark()/.light())`, show dialog, đọc `BoxDecoration.color` của `Container`, assert đúng `Colors.white`/`Colors.black.withValues(alpha: 0.10)` tương ứng.
 
 `flutter test`: 739/739 pass, `flutter analyze` sạch.
+
+## Revised in 3.7.8 (2026-11-23)
+
+Phần "light theme -> glass đen" ở trên đã bị ĐẢO NGƯỢC: dialog luôn nằm trên scrim tối (`barrierColor` đen alpha 0.72), nên glass đen cho chữ đen trên nền tối (tương phản đo được 1.43:1, mức tối thiểu WCAG là 4.5:1). Từ 3.7.8 nội dung luôn màu trắng ở mọi theme. KHÔNG đưa lại tint theo theme. Test hiện hành: `ad_loading_dialog_test.dart` (group "glass card tint is theme-independent") và `widget_golden_a11y_test.dart`.
+
