@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.8] - 2026-11-23
+
 - **Fixed (loading dialog readability):** `AdLoadingDialog` tinted its card and "Loading…" text from the host theme, but it always sits on a dark scrim, so a light-theme host got black text on a dark card (measured contrast 1.43:1, WCAG minimum 4.5:1). The content is now always white. The 120x120 card also grew a fixed height, so text scaled to 2x overflowed by 14 px; it now keeps 120x120 as a minimum and grows with the text.
 - **Tests:** added `test/widget_golden_a11y_test.dart` (dark / RTL / 2x-text goldens for `AdLoadingDialog`, `TopToast`, `RevenuePanel`, plus WCAG contrast and tap-target checks). Goldens capture the whole app boundary, not `byType(MaterialApp)`, which omits dialogs and overlays and silently produced blank goldens. The old T74 test that pinned the black-on-dark light-theme tint now asserts the white tint.
 
