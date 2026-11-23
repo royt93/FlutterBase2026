@@ -8,7 +8,7 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [3.7.7] - 2026-11-23
 
-- **Fixed (Privacy Options withdrawal):** after the user submitted "Do not consent", the form-dismiss lifecycle resume arrived while the consent apply was still running, was skipped, and replayed later; the apply's own refill had already run against the still-closed gate and loaded nothing, so Interstitial, Rewarded and Rewarded Interstitial stayed idle until the 5-minute poll (~4-4.5 min, seen twice on a Pixel 7 Pro). The replayed resume now triggers one refill. No consent behavior changes: loads still go out only after the withdrawal is written to the providers. Revenue-only impact, not a policy violation.
+- **Fixed (Privacy Options withdrawal):** after the user submitted "Do not consent", the form-dismiss lifecycle resume arrived while the consent apply was still running, was skipped, and replayed later; the apply's own refill had already run against the still-closed gate and loaded nothing, so Interstitial, Rewarded and Rewarded Interstitial stayed idle until the 5-minute poll (~4-4.5 min, seen twice on a Pixel 7 Pro). The replayed resume now triggers one refill. No change to the consent gate. Revenue-only impact, not a policy violation. Test note: `withdrawal_refill_replay_test.dart` fails without the fix and records the consent the provider holds at each load, but it does not detect every early-refill regression; the closed gate is what protects those windows.
 
 ## [3.7.6] - 2026-11-19
 

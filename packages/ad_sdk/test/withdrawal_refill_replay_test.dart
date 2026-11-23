@@ -51,15 +51,32 @@ class _CountingAdapter implements AdProviderAdapter {
   Future<void> dispose() async {}
   @override
   void applyConsent(AdConsent c) => applied.add(c);
+  /// Provider-held `hasUserConsent` at the instant each load was requested.
+  final List<bool> consentAtLoad = [];
+  bool get _held => applied.isEmpty ? true : applied.last.hasUserConsent;
   @override
-  Future<void> loadInterstitial() async => inter++;
+  Future<void> loadInterstitial() async {
+    inter++;
+    consentAtLoad.add(_held);
+  }
+
   @override
-  Future<void> loadRewarded() async => rew++;
+  Future<void> loadRewarded() async {
+    rew++;
+    consentAtLoad.add(_held);
+  }
+
   @override
-  Future<void> loadRewardedInterstitial() async => rewInter++;
+  Future<void> loadRewardedInterstitial() async {
+    rewInter++;
+    consentAtLoad.add(_held);
+  }
+
   @override
-  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async =>
-      appOpen++;
+  Future<void> loadAppOpen({void Function(bool loaded)? onAdLoaded}) async {
+    appOpen++;
+    consentAtLoad.add(_held);
+  }
   int discards = 0;
   @override
   Future<void> discardCachedFullscreenAds() async {
@@ -166,6 +183,7 @@ void main() {
         reason: 'sanity: personalised consent reached the provider first');
     adapter.markAllReady();
     adapter.inter = adapter.rew = adapter.rewInter = adapter.appOpen = 0;
+    adapter.consentAtLoad.clear();
   });
 
   tearDown(() async {
@@ -210,14 +228,20 @@ void main() {
     expect(adapter.appOpen, greaterThan(0), reason: 'App Open refilled');
   });
 
-  test('every provider write for the withdrawal precedes the first reload',
-      () async {
+  // Known limit (independent review + mutation runs, 2026-11-23): this samples
+  // the consent the provider holds at each load. It catches a refill that goes
+  // out before `applyConsent`, but a refill fired from inside the consent
+  // listener or from an early replay is not caught, because the gate flags
+  // keep every load skipped until the write lands. The gate, not this test,
+  // is what protects those windows.
+  test('no reload is requested while the providers still hold personalised '
+      'consent', () async {
     await submitForm(_refuse);
-    // After the discard the adapter was told "refused" before any load went
-    // out: the refill never requests under the old, personalised configuration.
-    expect(adapter.applied.last.hasUserConsent, isFalse);
+    expect(adapter.consentAtLoad, isNotEmpty, reason: 'sanity: reloads happened');
+    expect(adapter.consentAtLoad.every((held) => held == false), isTrue,
+        reason: 'every reload must see the withdrawn consent already applied: '
+            '${adapter.consentAtLoad}');
     expect(adapter.discards, 4, reason: 'all four cached ads dropped');
-    expect(adapter.inter, greaterThan(0));
   });
 
   test('without a dismiss-time resume nothing refills until the poll',
@@ -232,12 +256,12 @@ void main() {
     expect(adapter.inter, greaterThan(0), reason: 'the poll path still works');
   });
 
-  test('re-submitting the same consent with a resume does not double-refill',
-      () async {
+  test('re-submitting the same consent discards nothing and loads nothing '
+      'because every slot is still ready', () async {
     await submitForm(_allow);
-    final after = adapter.inter;
-    expect(after, lessThanOrEqualTo(2),
-        reason: 'one refill from the replayed resume at most');
+    expect(adapter.discards, 0, reason: 'no downgrade, no discard');
+    expect(adapter.inter + adapter.rew + adapter.rewInter, 0,
+        reason: 'ready slots are never reloaded by a refill scan');
   });
 
   test('an active VIP entry keeps every fullscreen slot unloaded', () async {
@@ -261,8 +285,8 @@ void main() {
         reason: '_retryRefillAds returns early while offline');
   });
 
-  test('a paused app drops the skipped resume: no refill from a stale replay',
-      () async {
+  test('a pause after the skipped resume still applies the withdrawal and '
+      'never loads under the old consent', () async {
     final f = AdManager().showPrivacyOptions();
     await pumpEventQueue(times: 20);
     AdManager().didChangeAppLifecycleState(AppLifecycleState.inactive);
@@ -274,8 +298,10 @@ void main() {
     await f;
     await pumpEventQueue(times: 100);
 
-    expect(AdManager().consent.hasUserConsent, isFalse,
-        reason: 'the withdrawal itself still applied');
+    expect(AdManager().consent.hasUserConsent, isFalse);
     expect(adapter.applied.last.hasUserConsent, isFalse);
+    expect(adapter.consentAtLoad.every((held) => held == false), isTrue,
+        reason: 'whatever did load must have seen the withdrawn consent: '
+            '${adapter.consentAtLoad}');
   });
 }
