@@ -9724,8 +9724,6 @@ class AdManager with WidgetsBindingObserver {
   Future<void> _resumeAdWorkAfterConsent(AdProviderAdapter ad) async {
     final checkGen = ++_resumeConsentCheckGen;
     final session = _consentSessionEpoch;
-    final vip = _vipManager;
-    final wasVip = vip?.isActive == true;
     _resumeConsentBlocked = true;
     _syncCanRequestAdsNotifier();
     // Round-72 audit follow-up (2nd independent review) — read-site guard,
@@ -9802,9 +9800,8 @@ class AdManager with WidgetsBindingObserver {
         !identical(_adapter, ad)) {
       return;
     }
-    if (wasVip && identical(_vipManager, vip) && !_isVipMember) {
-      _retryRefillAds();
-    }
+    // Loads skipped as 'consent' during this re-check would wait for the poll.
+    _retryRefillAds();
     try {
       ad.onAppResumed();
     } catch (e, st) {
