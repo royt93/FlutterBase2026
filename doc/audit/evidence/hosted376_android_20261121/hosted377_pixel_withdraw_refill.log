@@ -1,0 +1,24 @@
+2026-11-23 09:54:19.696 [UmpConsent] consent status: required
+2026-11-23 09:54:38.959 [UmpConsent] [success] done canRequestAds=true status=obtained formShown=true
+2026-11-23 09:54:41.453 [AdMobAdapter] applyConsent → nonPersonalizedAds=false restrictedDataProcessing=false (hasUserConsent=true, doNotSell=false)
+2026-11-23 09:55:10.219 [AdMobAdapter] loadAppOpen [AdMob] [loading]
+2026-11-23 09:55:10.229 [AdMobAdapter] loadInterstitial [AdMob] [loading]
+2026-11-23 09:55:10.232 [AdMobAdapter] loadRewarded [AdMob] [loading]
+2026-11-23 09:55:10.236 [AdMobAdapter] loadRewardedInterstitial [AdMob] [loading]
+2026-11-23 09:55:12.377 [AdMobAdapter] loadInterstitial [AdMob] [success]
+2026-11-23 09:55:12.416 [AdMobAdapter] loadAppOpen [AdMob] [success]
+2026-11-23 09:55:12.562 [AdMobAdapter] loadRewarded [AdMob] [success]
+2026-11-23 09:55:12.600 [AdMobAdapter] loadRewardedInterstitial [AdMob] [success]
+2026-11-23 09:55:13.100 [UmpConsent] privacy options done canRequestAds=true status=obtained
+2026-11-23 09:55:13.107 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-23 09:55:13.107 [AdManager] personalisation withdrawn — discarding cached fullscreen ads and rebuilding inline ads
+2026-11-23 09:55:13.110 [AdMobAdapter] discardCachedFullscreenAds [AdMob] — dropped 4 cached ad(s) so the next request carries the new consent state
+2026-11-23 09:55:13.141 [AdMobAdapter] applyConsent → nonPersonalizedAds=true restrictedDataProcessing=false (hasUserConsent=false, doNotSell=false)
+2026-11-23 09:55:13.157 [AdMobAdapter] loadAppOpen [AdMob] [loading]
+2026-11-23 09:55:13.159 [AdMobAdapter] loadInterstitial [AdMob] [loading]
+2026-11-23 09:55:13.159 [AdMobAdapter] loadRewarded [AdMob] [loading]
+2026-11-23 09:55:13.160 [AdMobAdapter] loadRewardedInterstitial [AdMob] [loading]
+2026-11-23 09:55:14.348 [AdMobAdapter] loadAppOpen [AdMob] [success]
+2026-11-23 09:55:14.423 [AdMobAdapter] loadInterstitial [AdMob] [success]
+2026-11-23 09:55:14.470 [AdMobAdapter] loadRewarded [AdMob] [success]
+2026-11-23 09:55:14.513 [AdMobAdapter] loadRewardedInterstitial [AdMob] [success]

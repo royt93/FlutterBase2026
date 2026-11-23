@@ -26,7 +26,8 @@
     "Release/R8 (2026-11-22, Pixel): example release APK built (exit 0), launched without FATAL/ANR, but the SDK release guard for Google test ad unit IDs kept canRequestAds=false, so ad load/show under R8 was NOT exercised. Debug-signed, not a production signing or Play-delivered build.",
     "Splash 8s cap with EEA form (2026-11-22, Pixel): one run, debug build, form waited for a human tap, not a simulated slow network.",
     "Pixel 2026-11-23 after-fix check used the LOCAL source (path dependency, commit 35c19ea), NOT hosted 3.7.6. Withdraw reloaded all four fullscreen slots within ~1.5s once; not repeated across devices.",
-    "Pixel 2026-11-23 on LOCAL source: clearSdkData() safe scope returned normally (no TimeoutException); duration not measured; host-key preservation not tested; timeout path not exercised."
+    "Pixel 2026-11-23 on LOCAL source: clearSdkData() safe scope returned normally (no TimeoutException); duration not measured; host-key preservation not tested; timeout path not exercised.",
+    "Hosted 3.7.7 (sha256 7aab5d2d22cb7ae3c3129d77ad9f2e3c5ac1c8333913cba141a3f4e0deb38984), Pixel, 2026-11-23: withdraw reloaded all four fullscreen slots in ~1.4s; clearSdkData completed in 66ms (debug build, empty-ish data, not a hang test). One accidental click on a Google test ad creative during an early-close attempt (tap coordinates came from a full-screen Close node); no install; that attempt is NOT evidence for earned=false."
   ],
   "files": {
     "interstitial.log": {
@@ -131,6 +132,10 @@
     "pixel_withdraw_refill_after_fix.log": {
       "source_basename": "pixel_qa376r6 local-source capture (2026-11-23)",
       "sha256": "bdcf141c02f64f9092f066fad1d680764b24c3a55de4293201bdd41f42754679"
+    },
+    "hosted377_pixel_withdraw_refill.log": {
+      "source_basename": "pixel_qa377 hosted 3.7.7 capture (2026-11-23)",
+      "sha256": "14f6e51552a8686797337c8ab20c4a165a84a0a036b71146e34f78527ab5c7ec"
     }
   }
 }

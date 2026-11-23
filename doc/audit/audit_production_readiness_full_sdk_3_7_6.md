@@ -141,6 +141,14 @@ Chạy trên **app example** (package QA riêng, Google test ads, Pixel 7 Pro, A
 
 Log đã làm sạch: `evidence/hosted376_android_20261121/pixel_*`. Không có consent string, GAID hay hash thiết bị trong log lưu (đã kiểm regex 32 ký tự hex).
 
+### 4i. Hosted 3.7.7 (2026-11-23): fix refill, `clearSdkData`, early-close
+
+3.7.7 đã publish lên pub.dev (SHA-256 `7aab5d2d22cb7ae3c3129d77ad9f2e3c5ac1c8333913cba141a3f4e0deb38984`, khớp API và `pubspec.lock` `source: hosted`), tag `v3.7.7`. Kiểm trên Pixel 7 Pro, package QA riêng, Google test ads, bản **hosted 3.7.7** (không phải source local). Bằng chứng: `hosted377_pixel_withdraw_refill.log`.
+
+1. **Fix refill: PASS (một thiết bị, một lần).** Sau `Do not consent`, `discardCachedFullscreenAds` bỏ 4 ad, cả 4 slot (App Open, Interstitial, Rewarded, Rewarded Interstitial) nạp lại thành công trong khoảng 1,4 giây (13.107 -> 14.513). Trước fix ở 3.7.6: ~4-4,5 phút.
+2. **`clearSdkData()`: hoàn tất bình thường, 66 ms** (đo bằng `Stopwatch` trong bản copy của example, debug build, dữ liệu gần như trống). Không `TimeoutException`. Đây chỉ là đường thành công nhanh; đường timeout và key host còn nguyên vẫn **NOT RUN**.
+3. **Early-close `earned=false`: vẫn NOT RUN, và lượt này không hợp lệ.** Lệnh tap lấy toạ độ từ node `Close` có bounds toàn màn hình (`[0,0][1440,3120]`), nên tap rơi vào giữa màn hình = **click nhầm vào creative của Google test ad** (log `click`, mở Google Play trang Google Ads). Không cài gì (kiểm package), đã quay lại và đóng bằng nút X thật sau khi reward đã cấp. Ghi nhận như một sự cố QA: vi phạm quy tắc "không chạm creative" mà owner đặt. Nguyên nhân là script tin node `Close` mà không kiểm tra bounds nhỏ; cần kiểm bounds trước khi tap ở các lần sau.
+
 ## 5. Checklist host và QA tiếp theo
 
 Chưa có host app pilot. Gates host, telemetry, stop criteria và rollback nằm ở nguồn chuẩn `host_pilot_quickstart_android_admob.md`, `pilot_checklist_android_admob.md` và `host_production_readiness_android_admob.md`; report này không sao chép lại để tránh lệch. Ghi mỗi gate `PASS`/`FAIL`/`NOT RUN`; không suy từ example.
