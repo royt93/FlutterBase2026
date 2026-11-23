@@ -29,8 +29,8 @@
     "Pixel 2026-11-23 on LOCAL source: clearSdkData() safe scope returned normally (no TimeoutException); duration not measured; host-key preservation not tested; timeout path not exercised.",
     "Hosted 3.7.7 (sha256 7aab5d2d22cb7ae3c3129d77ad9f2e3c5ac1c8333913cba141a3f4e0deb38984), Pixel, 2026-11-23: withdraw reloaded all four fullscreen slots in ~1.4s; clearSdkData completed in 66ms (debug build, empty-ish data, not a hang test). One accidental click on a Google test ad creative during an early-close attempt (tap coordinates came from a full-screen Close node); no install; that attempt is NOT evidence for earned=false.",
     "Hosted 3.7.7 Pixel guarded early-close (Close node 88x84, tapped ~6.8s after show, before onEarnedReward): the ad did NOT close and the reward was still granted ~2s later; earned=false on early close is still not observable natively with this test creative. No creative click this run.",
-    "npa on the wire (Pixel, hosted 3.7.7, via Google Ads debug logging, not an external proxy): refuse run showed npa=1 on the interstitial requests, accept run showed npa absent. Only the first interstitial_mb requests of one run each; other formats, later requests, accept-after-withdraw and other devices not checked.",
-    "npa mid-session withdraw (Pixel, hosted 3.7.7, GMS debug log): 4 interstitial requests before withdraw had npa absent; 4 after had npa=1. One run, interstitial format only, request log comes from GMS on the device, not an independent proxy."
+    "npa on the wire (Pixel, hosted 3.7.7, via Google Ads debug logging, not an external proxy): refuse run showed npa=1 on the interstitial requests, accept run showed npa absent. Only the first four fullscreen requests (App Open, Interstitial, Rewarded, Rewarded Interstitial; the log labels all of them format=interstitial_mb, told apart by slotname) of one run each; Banner/MREC/Native, later requests, accept-after-withdraw and other devices not checked.",
+    "npa mid-session withdraw (Pixel, hosted 3.7.7, GMS debug log): 4 fullscreen requests (the four fullscreen ad units) before withdraw had npa absent; the same 4 units after had npa=1. One run, fullscreen formats only, request log comes from GMS on the device, not an independent proxy."
   ],
   "files": {
     "interstitial.log": {
@@ -146,11 +146,11 @@
     },
     "hosted377_pixel_npa_on_the_wire.txt": {
       "source_basename": "pixel_qa377 Ads debug-log capture (2026-11-23)",
-      "sha256": "2984b5ff5e01958da8d1ecac291b397390fabe000f414d3a32a9e3e00f42bfc3"
+      "sha256": "96a7c68de87e8628e4b8ac03192c2ae45ec7d52654f96a0fc05e26bf6334f356"
     },
     "hosted377_pixel_npa_mid_session_withdraw.txt": {
       "source_basename": "pixel_qa377 Ads debug-log capture, mid-session (2026-11-23)",
-      "sha256": "35910de7d1b9e541eb39d5f51dde8d0beb4b2bb1645fa77b87ff992699019a1d"
+      "sha256": "77581dc65fd2db0335eb5844300d82b8e5afa5f72936917ce9f1073eaf79b018"
     }
   }
 }

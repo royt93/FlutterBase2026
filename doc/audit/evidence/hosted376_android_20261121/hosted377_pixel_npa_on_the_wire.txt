@@ -1,4 +1,12 @@
-# Ad request consent params seen via Google Ads debug logging (hosted 3.7.7 example, Pixel 7 Pro, 2026-11-23).
-# Only these keys are kept: format, npa, gdpr, has_tc_string(bool). No URL, ids, hashes or TC string.
-REFUSE (Do not consent): 4 requests, distinct: interstitial_mb npa=1 gdpr=1 has_tc_string=true
-ACCEPT (Consent): 4 requests, distinct: interstitial_mb npa=<absent> gdpr=1 has_tc_string=true
+# Ad request consent params via Google Ads debug logging (hosted 3.7.7 example, Pixel 7 Pro, 2026-11-23).
+# unit is derived from slotname via the example ad-unit mapping. No URL, ids, hashes or TC string.
+REFUSE (Do not consent): 4 requests
+  REQ unit=appOpen npa=1 gdpr=1 has_tc_string=true
+  REQ unit=rewarded npa=1 gdpr=1 has_tc_string=true
+  REQ unit=rewardedInterstitial npa=1 gdpr=1 has_tc_string=true
+  REQ unit=interstitial npa=1 gdpr=1 has_tc_string=true
+ACCEPT (Consent): 4 requests
+  REQ unit=interstitial npa=<absent> gdpr=1 has_tc_string=true
+  REQ unit=appOpen npa=<absent> gdpr=1 has_tc_string=true
+  REQ unit=rewarded npa=<absent> gdpr=1 has_tc_string=true
+  REQ unit=rewardedInterstitial npa=<absent> gdpr=1 has_tc_string=true
