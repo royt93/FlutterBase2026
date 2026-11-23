@@ -149,6 +149,12 @@ Log đã làm sạch: `evidence/hosted376_android_20261121/pixel_*`. Không có 
 2. **`clearSdkData()`: hoàn tất bình thường, 66 ms** (đo bằng `Stopwatch` trong bản copy của example, debug build, dữ liệu gần như trống). Không `TimeoutException`. Đây chỉ là đường thành công nhanh; đường timeout và key host còn nguyên vẫn **NOT RUN**.
 3. **Early-close `earned=false`: vẫn NOT RUN, và lượt này không hợp lệ.** Lệnh tap lấy toạ độ từ node `Close` có bounds toàn màn hình (`[0,0][1440,3120]`), nên tap rơi vào giữa màn hình = **click nhầm vào creative của Google test ad** (log `click`, mở Google Play trang Google Ads). Không cài gì (kiểm package), đã quay lại và đóng bằng nút X thật sau khi reward đã cấp. Ghi nhận như một sự cố QA: vi phạm quy tắc "không chạm creative" mà owner đặt. Nguyên nhân là script tin node `Close` mà không kiểm tra bounds nhỏ; cần kiểm bounds trước khi tap ở các lần sau.
 
+### 4j. Early-close có chốt an toàn, hosted 3.7.7 (2026-11-23)
+
+Script chỉ tap khi node `Close` nhỏ hơn 300 px (thực tế 88x84) và log chưa có `onEarnedReward`, cả hai kiểm trong cùng một lệnh. Bằng chứng: `hosted377_pixel_early_close_guarded.log`.
+
+Kết quả: tap Close lúc ~6,8 giây sau `shown`, trước reward. Ad **không đóng**, reward vẫn cấp 2 giây sau (`onEarnedReward` 10:20:18). Lần này không có click vào creative. Đây là lần thử hợp lệ thứ ba trở lên cho cùng một kết luận: với test creative video này, X trong countdown không kết thúc ad nên **không quan sát được `earned=false` trên native**. Nhánh đó chỉ có bằng chứng mức fake-bridge. Giữ NOT RUN; không thử thêm bằng adb trừ khi có creative khác.
+
 ## 5. Checklist host và QA tiếp theo
 
 Chưa có host app pilot. Gates host, telemetry, stop criteria và rollback nằm ở nguồn chuẩn `host_pilot_quickstart_android_admob.md`, `pilot_checklist_android_admob.md` và `host_production_readiness_android_admob.md`; report này không sao chép lại để tránh lệch. Ghi mỗi gate `PASS`/`FAIL`/`NOT RUN`; không suy từ example.
