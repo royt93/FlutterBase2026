@@ -16,10 +16,33 @@ Test tái hiện đã có và đang `skip`: `test/vip_entries_store_test.dart` �
 
 Một bộ đếm `revision` trong JSON không được xác thực. Kẻ tấn công có root tự đặt `revision` cao hơn bản secure thì bản giả ở fallback "thắng" và thoát mức kẹp 24 giờ của M6. Nghĩa là sửa lỗi hiếm này bằng cách mở lại lỗ hổng giả mạo VIP. User đã đồng ý bỏ hướng này.
 
-## Hướng thay thế cần cân nhắc
+## Thiết kế đề xuất (2026-11-23, chưa code)
 
-- **Ký bản fallback bằng khóa HMAC lưu trong secure storage** (khóa ngẫu nhiên tạo lần đầu ghi được vào Keystore). Kẻ tấn công không có khóa nên không giả được "mới hơn". Hạn chế: nếu Keystore hỏng ngay từ lần ghi đầu thì chưa có khóa, nên chưa phân biệt được; cần thêm mã ở vùng sát trần (`ad_preferences.dart` còn dư ~68 byte).
-- **Ghi hai bản theo thứ tự rồi xác nhận** (ghi secure trước, chỉ xóa bản cũ khi đọc lại khớp) để không bao giờ có cửa sổ "bản mới chỉ nằm ở fallback".
+### Gốc của vấn đề
+
+`setRaw` ghi secure; nếu thất bại thì ghi fallback và KHÔNG xóa bản secure cũ. Từ lúc đó có hai bản khác nhau, và chỉ "bản fallback tồn tại" cho biết bản nào mới, nhưng dấu hiệu đó trùng với dấu hiệu giả mạo M6 khi Keystore khỏe. Vấn đề không phải thiếu số phiên bản mà là **không bao giờ nên để hai bản lệch nhau mà không biết**.
+
+### Phương án A (khuyến nghị): vá lệch ngay lúc ghi, bằng "xóa bản secure cũ khi ghi thất bại"
+
+Trong `setRaw`, khi `_writeSecure` thất bại và ta ghi fallback, cố **xóa** (`_secure.delete`) bản secure cũ. Nếu xóa được thì không còn bản cũ để che: `getRaw` thấy secure rỗng và đi vào nhánh fallback đã có (với M6 kẹp 24 giờ nếu Keystore khỏe, đúng như hiện tại cho trường hợp "Keystore hỏng lúc cấp rồi lành"). Nếu xóa cũng thất bại (Keystore hỏng thật), chính là trường hợp bản 3.7.11 đã xử lý (probe thất bại, fallback thắng).
+- Ưu: không đổi định dạng lưu, không thêm khóa, không thêm mã hóa, vài dòng, không làm yếu M6.
+- Nhược: nếu ghi lỗi tạm thời nhưng xóa lại thành công, thì khách vẫn bị kẹp 24 giờ của M6 (nhẹ hơn mất toàn bộ, và là hành vi đã có). Còn một cửa sổ nhỏ: ghi fallback xong, xóa chưa chạy mà tiến trình chết; khi đó rơi vào đúng lỗi cũ nhưng hẹp hơn nhiều.
+
+### Phương án B: ký bản fallback bằng khóa HMAC trong secure storage
+
+Khóa ngẫu nhiên tạo lần đầu ghi được; fallback mang MAC; kẻ giả mạo không có khóa nên không giả được "mới hơn".
+- Ưu: phân biệt "mới hơn thật" với "bị cắm vào" một cách có chứng minh.
+- Nhược: không giải quyết khi Keystore hỏng từ lần ghi đầu (chưa có khóa); thêm mã ở vùng sát trần (`ad_preferences.dart` dư ~68 byte, `vip_manager.dart` ~490 byte); phức tạp hơn nhiều; cần review mật mã.
+
+### Phương án C: ghi fallback trước, xác nhận secure rồi mới xóa fallback
+
+Đảo thứ tự: luôn ghi fallback trước, rồi ghi secure, đọc lại so khớp, rồi mới xóa fallback. Không bao giờ có cửa sổ "bản mới chỉ ở fallback mà secure còn bản cũ".
+- Ưu: loại bỏ lệch từ gốc.
+- Nhược: fallback (kém tin cậy hơn, chỉ có checksum) luôn có mặt tạm thời với mọi lần ghi, mở rộng bề mặt M6; nhiều thao tác Keystore hơn mỗi lần ghi.
+
+### Khuyến nghị
+
+Làm A trước (nhỏ, an toàn nhất). Test đỏ đang `skip` (`healed Keystore`) cần đổi thành mô tả đúng: khi ghi secure thất bại và xóa thành công thì `getRaw` không trả bản cũ. Chỉ cân nhắc B nếu A không đủ.
 
 ## Đề xuất giải pháp (đã bị bỏ, giữ để tham khảo)
 
