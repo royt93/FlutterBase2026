@@ -59,6 +59,13 @@ double _adHeightUnder(WidgetTester tester, Key key) {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  // AdManager is a process-wide singleton: without a reset the second test
+  // starts with the SDK already initialised and can no longer reproduce a
+  // mount BEFORE init (it passed on the unfixed code when run second).
+  tearDown(() async {
+    await AdManager().destroy();
+  });
+
   testWidgets(
     'route pushed over a pre-init banner then popped still paints it',
     (tester) async {
