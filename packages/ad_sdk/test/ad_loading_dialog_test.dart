@@ -36,12 +36,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  // T74 — the dialog is a floating "glass" bubble drawn over whatever's
-  // behind it (often a splash/ad, not the host's own screen), so it tints
-  // itself based on Theme.of(context)'s brightness rather than adopting the
-  // theme's own surface/text colors — but it must still actually READ that
-  // brightness, not hardcode one look regardless of theme.
-  group('theme-aware tint (T74)', () {
+  // T74 (revised) — the dialog always sits on a dark scrim barrier, so its
+  // glass card must be white-based in EVERY host theme. Theme-based tinting
+  // used to give black-on-dark (1.43:1 contrast) under a light theme.
+  group('glass card tint is theme-independent (T74 revised)', () {
     Future<Color> glassColor(WidgetTester tester, ThemeData theme) async {
       late BuildContext ctx;
       await tester.pumpWidget(MaterialApp(
@@ -67,10 +65,10 @@ void main() {
       expect(color, Colors.white.withValues(alpha: 0.10));
     });
 
-    testWidgets('light theme tints the glass card black-based',
+    testWidgets('light theme ALSO tints the glass card white-based',
         (tester) async {
       final color = await glassColor(tester, ThemeData.light());
-      expect(color, Colors.black.withValues(alpha: 0.10));
+      expect(color, Colors.white.withValues(alpha: 0.10));
     });
   });
 

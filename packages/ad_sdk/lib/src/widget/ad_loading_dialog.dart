@@ -30,8 +30,9 @@ class AdLoadingDialog {
 
   /// T75 — reactive mirror of [isShowing], so [AdManager.fullscreenBusy]
   /// (and any other listener) can react to it without polling.
-  static final ValueNotifier<bool> isShowingNotifier =
-      ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> isShowingNotifier = ValueNotifier<bool>(
+    false,
+  );
 
   /// NavigatorState captured by [show] so [dismiss] can pop the right route.
   static NavigatorState? _activeNavigator;
@@ -166,8 +167,10 @@ class AdLoadingDialog {
     // ✅ FIX 1: Concurrent guard — prevents double-tap from stacking two dialogs.
     // If two dialogs stack, the first navigator.pop() dismisses the WRONG dialog.
     if (_isShowing) {
-      SafeLogger.w(_tag,
-          'showAdBuffer: ⚠️ dialog already showing, skipping duplicate — calling onComplete immediately');
+      SafeLogger.w(
+        _tag,
+        'showAdBuffer: ⚠️ dialog already showing, skipping duplicate — calling onComplete immediately',
+      );
       onComplete();
       return;
     }
@@ -217,8 +220,10 @@ class AdLoadingDialog {
     // already belong to whatever came next — popping again here would close
     // an unrelated route.
     if (!_epoch.isCurrent(myGen)) {
-      SafeLogger.d(_tag,
-          'showAdBuffer: generation stale (resetState already handled this dialog), skipping pop');
+      SafeLogger.d(
+        _tag,
+        'showAdBuffer: generation stale (resetState already handled this dialog), skipping pop',
+      );
       onComplete();
       return;
     }
@@ -289,15 +294,9 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
     // DefaultTextStyle (theme font) — without it Flutter falls back to a
     // blocky raw-renderer font with red underlines (the "yellow-text-on-red-
     // underline debug look") and the dialog renders broken.
-    // T74 — a floating "glass" bubble over whatever's behind it (often a
-    // splash/ad, not necessarily the host's own screen), so it doesn't
-    // adopt the theme's surface/text colors directly. Instead it tints
-    // itself light-on-dark or dark-on-light based on Theme.of(context)'s
-    // brightness, keeping the same glass look with sensible contrast in
-    // both cases. `Theme.of` always resolves to at least Flutter's default
-    // (light) ThemeData, so this needs no extra fallback for a themeless host.
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final base = isDark ? Colors.white : Colors.black;
+    // Barrier is a dark scrim whatever the host theme, so content stays light
+    // (theme-based tinting rendered black-on-dark, 1.43:1 contrast).
+    const base = Colors.white;
     return Material(
       type: MaterialType.transparency,
       child: PopScope(
@@ -308,8 +307,11 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                 opacity: fade,
                 child: Center(
                   child: Container(
-                    width: 120,
-                    height: 120,
+                    constraints: const BoxConstraints(
+                      minWidth: 120,
+                      minHeight: 120,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     decoration: BoxDecoration(
                       color: base.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(20),
@@ -326,6 +328,7 @@ class _AdLoadingDialogContentState extends State<_AdLoadingDialogContent>
                       ],
                     ),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         SizedBox(
