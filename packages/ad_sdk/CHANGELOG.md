@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.9] - 2026-11-23
+
 - **Fixed (AdMob banner mounted before init):** a `BannerAdWidget` already on the first frame, before `AdManager().initialize()` finished, never painted its banner. At that moment no config exists, so `isAdMobProvider` is false and `didPush()` took the AppLovin branch, which never raised the AdMob `_admobIsTop` flag; the widget then showed a blank 72 px placeholder for good while the log said `loadBanner ✅`. Measured on a Galaxy S24 Ultra: early-mounted banner height 0, the same widget mounted later 56. `didPush()` now raises the flag for any provider (it is only read on the AdMob path). This is the usual shape of a real app, a banner sitting on the main screen. Covered by `test/banner_mounted_before_init_test.dart` (red without the fix) and `example/integration_test/banner_mounted_before_init_test.dart` (3 runs red before, 2 green after).
 
 ## [3.7.8] - 2026-11-23
