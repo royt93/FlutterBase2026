@@ -1645,11 +1645,9 @@ Create `android/app/src/main/res/xml/data_extraction_rules.xml` (Android 12+):
 <data-extraction-rules>
   <cloud-backup>
     <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
-    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
   </cloud-backup>
   <device-transfer>
     <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
-    <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
   </device-transfer>
 </data-extraction-rules>
 ```
@@ -1660,11 +1658,10 @@ And `full_backup_content.xml` (Android 6–11):
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
   <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
-  <exclude domain="sharedpref" path="FlutterSecureStorage.xml"/>
 </full-backup-content>
 ```
 
-`FlutterSecureStorage.xml` is excluded because its EncryptedSharedPreferences ciphertext is unrecoverable without the device-bound Keystore key (which is not part of any backup).
+`FlutterSecureStorage.xml` is left out because an explicit `<include>` already excludes every other `sharedpref` file, and its EncryptedSharedPreferences ciphertext is unrecoverable without the device-bound Keystore key (which is not part of any backup). Do **not** add an explicit `<exclude path="FlutterSecureStorage.xml"/>`: an `<exclude>` that is not nested under an included path fails Android lint (`FullBackupContent`) and breaks `flutter build apk --release`.
 
 Without this configuration, Android anti-bypass is effectively disabled — uninstall + reinstall always re-grants the grace window. That is a valid choice if you want to allow the bypass; just be aware of the trade-off.
 

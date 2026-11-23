@@ -91,3 +91,11 @@ When taking a task, move its file with `git mv`, update `Status:`, satisfy accep
 ## Test requirement
 
 Every behavior change needs tests for every meaningful branch: success, failure, offline, invalid input, lifecycle teardown, and relevant provider/platform divergence. Use unit tests for pure/state logic, widget tests for UI/lifecycle, and Android/iOS integration tests for platform/plugin behavior. Comments, documentation, and wording-only changes need no duplicate tests; rerun closest existing coverage instead. Do not close behavior work on static analysis alone.
+
+Test traps hit before (each passed silently while proving nothing):
+
+- **Goldens:** `find.byType(MaterialApp)` captures only the first route's boundary, so dialogs/overlays give a blank image that still matches. Wrap the app in a keyed `RepaintBoundary`, `expect` the visible text first, and open the PNG. Goldens use `test/golden_tolerance.dart` (6%) because macOS and the Linux CI differ by up to ~14%; tolerance hides small layout changes, so also assert sizes with real numbers.
+- **Device tests on `AdManager`:** it is a process-wide singleton. Call `AdManager().destroy()` in `tearDown`, or the second test starts already initialised and passes on unfixed code.
+- **Revert to see red:** a new test counts only after it fails on the unfixed code (use `git show <tag>:<path>`); one mutation showed a "pre-init" test that set `debugConfig` before the first pump never hit the bug.
+- **`dart format` on an existing file** rewrites the whole file and buries the real diff. Format only new files; restore others from HEAD.
+- **Samsung S24 Ultra:** the package also exists in Secure Folder, so use `adb shell pm clear --user 0 com.roy.admobwrapper`. The example launcher activity is `com.example.ad_sdk_example.MainActivity`.

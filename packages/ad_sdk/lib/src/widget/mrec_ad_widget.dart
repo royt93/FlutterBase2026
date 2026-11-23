@@ -390,12 +390,14 @@ class _MrecAdWidgetState extends State<MrecAdWidget>
       // kept writing the flag directly, and the widget wins because it writes
       // last.
       mgr.setMrecRoutePaused(this, false);
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _admobIsTop.value = true;
-      });
     }
+    // Also for a widget mounted before initialize() finished: the provider is
+    // unknown then (isAdMobProvider is false with no config), so the AdMob
+    // surface stayed a blank placeholder forever. Same fix as BannerAdWidget.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _subscribedRoute?.isCurrent == false) return;
+      _admobIsTop.value = true;
+    });
     super.didPush();
   }
 

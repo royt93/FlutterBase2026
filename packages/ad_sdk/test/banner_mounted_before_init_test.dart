@@ -395,4 +395,58 @@ void main() {
       await tester.pump(const Duration(milliseconds: 2500));
     },
   );
+
+  testWidgets(
+    'init completing while the banner is covered: banner paints after pop',
+    (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugConnectivityReady = false;
+      AdManager().debugConnectivityChanged(true);
+
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(body: Column(children: [const BannerAdWidget()])),
+        ),
+      );
+      // let didPush's post-frame callback raise the flag, then cover the page
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        AdManager().isAdMobProvider,
+        isFalse,
+        reason: 'precondition: provider unknown when the route is pushed',
+      );
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('2')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // init completes while covered
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugConfig = _config;
+      AdManager().debugSetAdapter(adapter);
+      AdManager().initRevision.value++;
+      await tester.pump(const Duration(milliseconds: 200));
+
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        find.byKey(const ValueKey('fake-banner-view')),
+        findsOneWidget,
+        reason: 'after popping back the banner must be requested and drawn',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
 }
