@@ -1,0 +1,6 @@
+2026-11-23 10:20:08.661 [AdScreen] showRewardedAd called
+2026-11-23 10:20:08.667 [AdScreen] showRewardedAd pre-check result: canShow=true
+2026-11-23 10:20:09.791 [AdMobAdapter] showRewarded [AdMob] [success] shown
+2026-11-23 10:20:09.792 [AdMobAdapter] showRewarded [AdMob] impression
+2026-11-23 10:20:18.647 [AdMobAdapter] showRewarded [AdMob] type=coins amount=10
+2026-11-23 10:20:18.675 [AdScreen] showRewardedAd onEarnedReward: result=true
