@@ -2,7 +2,7 @@
 
 - **Loại:** Fix (phần còn lại của một lỗi đã sửa một nửa)
 - **Priority:** P2 · **Severity:** MEDIUM (chạm VIP đã trả tiền, nhưng hiếm và cần Keystore chập chờn)
-- **Status:** todo — user đã chọn hướng "số phiên bản trong dữ liệu" (2026-11-23), chưa làm
+- **Status:** todo — CHỜ THIẾT KẾ. Hướng "số phiên bản trong dữ liệu" đã bị bỏ (2026-11-23) vì yếu hơn M6, xem mục "Vì sao hướng revision bị bỏ"
 
 ## Bối cảnh & Vấn đề
 
@@ -12,7 +12,16 @@ Khi ghi vào secure storage thất bại nhưng đọc vẫn được, bản m�
 
 Test tái hiện đã có và đang `skip`: `test/vip_entries_store_test.dart` → "a fallback newer than the secure copy survives a healed Keystore" (đỏ khi bỏ skip).
 
-## Đề xuất giải pháp
+## Vì sao hướng revision bị bỏ
+
+Một bộ đếm `revision` trong JSON không được xác thực. Kẻ tấn công có root tự đặt `revision` cao hơn bản secure thì bản giả ở fallback "thắng" và thoát mức kẹp 24 giờ của M6. Nghĩa là sửa lỗi hiếm này bằng cách mở lại lỗ hổng giả mạo VIP. User đã đồng ý bỏ hướng này.
+
+## Hướng thay thế cần cân nhắc
+
+- **Ký bản fallback bằng khóa HMAC lưu trong secure storage** (khóa ngẫu nhiên tạo lần đầu ghi được vào Keystore). Kẻ tấn công không có khóa nên không giả được "mới hơn". Hạn chế: nếu Keystore hỏng ngay từ lần ghi đầu thì chưa có khóa, nên chưa phân biệt được; cần thêm mã ở vùng sát trần (`ad_preferences.dart` còn dư ~68 byte).
+- **Ghi hai bản theo thứ tự rồi xác nhận** (ghi secure trước, chỉ xóa bản cũ khi đọc lại khớp) để không bao giờ có cửa sổ "bản mới chỉ nằm ở fallback".
+
+## Đề xuất giải pháp (đã bị bỏ, giữ để tham khảo)
 
 Ghi một bộ đếm `revision` tăng dần vào JSON entries ở cả hai nơi (secure và fallback). Khi đọc, bản có revision lớn hơn thắng. Fallback không có revision hoặc revision thấp hơn vẫn bị coi là M6 (kẹp 24 giờ). Giữ tương thích ngược: dữ liệu cũ không có `revision` coi như 0.
 

@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.11] - 2026-11-23
+
 - **Fixed (VIP stacked on a revoked entry):** redeeming a valid key while the stack base entry was already revoked and clamped to the 24 h grace made the new entry inherit the revoked key's provenance, so the next CRL pass clamped the WHOLE new window to about a day, not just the part carried over. A revoked entry is no longer used as a stack base (also covers a WATCH_AD stack on top of one). Red before (a 30-day key left with 0 days), green after (`test/vip_revocation_test.dart`). Found by an independent review.
 - **Fixed, partly (VIP entries: stale secure copy beat a newer fallback):** when a secure-storage write failed but reads still worked, `getRaw()` kept returning the older secure copy and never read the fallback just written, so a refund revoke could come back or a paid redeem be lost while its key was already burned in the one-time ledger. While the store still cannot write, the newer fallback now wins; when it can write, an old fallback is still the untrusted M6 case and the secure copy wins. Red before, green after (`test/vip_entries_store_test.dart`). Rare, and silent when it happened. **Known gap (T292):** if the Keystore recovers before the next read, the newer fallback still loses, because a fallback next to a healthy Keystore is indistinguishable from the M6 forgery case without a revision counter; that case has a skipped red test.
 
