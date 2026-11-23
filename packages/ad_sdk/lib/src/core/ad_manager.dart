@@ -2746,6 +2746,7 @@ class AdManager with WidgetsBindingObserver {
   // A timed-out resume stays blocked until a later resume confirms consent.
   bool _resumeConsentBlocked = false;
   int _resumeConsentCheckGen = 0;
+  bool _gateSkip = false;
 
   /// See [_canRequestAds] / [_footgunBlocked] / [_testIdFootgunBlocked] /
   /// [_consentProviderApplyInFlight].
@@ -2973,6 +2974,7 @@ class AdManager with WidgetsBindingObserver {
     // ask "why isn't this ad showing?" without turning on verbose logging
     // first. See [explainLastSkip].
     _lastSkipByType[type] = event;
+    if (reason == 'consent' && action == 'load') _gateSkip = true;
     _emit(event);
   }
 
@@ -9725,6 +9727,7 @@ class AdManager with WidgetsBindingObserver {
     final checkGen = ++_resumeConsentCheckGen;
     final session = _consentSessionEpoch;
     _resumeConsentBlocked = true;
+    _gateSkip = _vipManager?.isActive == true;
     _syncCanRequestAdsNotifier();
     // Round-72 audit follow-up (2nd independent review) — read-site guard,
     // same reason as debugConsentGateRecoveryRetryDelay above: annotation
@@ -9800,8 +9803,7 @@ class AdManager with WidgetsBindingObserver {
         !identical(_adapter, ad)) {
       return;
     }
-    // Loads skipped as 'consent' during this re-check would wait for the poll.
-    _retryRefillAds();
+    if (_gateSkip) _retryRefillAds();
     try {
       ad.onAppResumed();
     } catch (e, st) {

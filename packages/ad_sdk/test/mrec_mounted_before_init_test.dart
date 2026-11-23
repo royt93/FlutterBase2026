@@ -226,4 +226,43 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 2500));
   });
+
+  testWidgets(
+    'MREC mounted with active:false does not draw a view until active',
+    (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugConnectivityReady = false;
+      AdManager().debugConnectivityChanged(true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugConfig = _config;
+      AdManager().debugSetAdapter(adapter);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Column(children: [const MrecAdWidget(active: false)]),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        adapter.loadMrecCalls,
+        0,
+        reason: 'an inactive MREC must not be requested',
+      );
+      expect(
+        find.byKey(const ValueKey('fake-mrec-view')),
+        findsNothing,
+        reason: 'and must not draw a native view either',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
 }

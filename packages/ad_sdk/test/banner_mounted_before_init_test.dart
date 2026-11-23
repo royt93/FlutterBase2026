@@ -27,6 +27,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   final Map<Object, AdSlot> _bannerSlotsByKey = {};
   final Map<Object, BannerListenables> _bannerListenablesByKey = {};
   int loadBannerCalls = 0;
+  int preloadBannerCalls = 0;
   int disposeBannerCalls = 0;
 
   @override
@@ -47,6 +48,11 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   );
   @override
   bool bannerRoutePaused(Object key) => false;
+  @override
+  void setBannerRoutePaused(Object key, bool paused) {}
+  @override
+  ValueNotifier<Object?> appLovinBannerAdViewId(Object key) =>
+      ValueNotifier<Object?>(null);
   @override
   void disposeBannerInstance(Object key) {
     disposeBannerCalls++;
@@ -77,7 +83,10 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   }
 
   @override
-  Future<void> preloadBanner(Object key) async {}
+  Future<void> preloadBanner(Object key) async {
+    preloadBannerCalls++;
+  }
+
   @override
   Future<void> preloadMrec(Object key) async {}
   @override
@@ -512,6 +521,93 @@ void main() {
         find.byKey(const ValueKey('fake-banner-view')),
         findsOneWidget,
         reason: 'popping back must reload the banner dropped while covered',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
+
+  testWidgets(
+    'AppLovin: personalisation withdrawn while covered, banner reloads on pop',
+    (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugConnectivityReady = false;
+      AdManager().debugConnectivityChanged(true);
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugConfig = const AdConfig(
+        provider: AdProvider.appLovin,
+        appLovin: AppLovinConfig(
+          sdkKey: 'k',
+          bannerId: 'b',
+          interstitialId: 'i',
+          appOpenId: 'a',
+          rewardedId: 'r',
+        ),
+        safety: AdSafetyParams(dryRun: true),
+        firstInstallVipGrace: FirstInstallVipGrace.disabled,
+      );
+      AdManager().debugSetAdapter(adapter);
+
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(body: Column(children: [const BannerAdWidget()])),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(AdManager().isInitialised, isTrue, reason: 'precondition: init');
+      expect(
+        AdManager().canRequestAds,
+        isTrue,
+        reason: 'precondition: consent',
+      );
+      expect(AdManager().isConnected, isTrue, reason: 'precondition: online');
+      expect(
+        AdManager().isVIPMember(),
+        isFalse,
+        reason: 'precondition: no VIP',
+      );
+      expect(AdManager().isAdMobProvider, isFalse, reason: 'precondition');
+      expect(
+        adapter.preloadBannerCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'precondition: the AppLovin banner preloaded on mount',
+      );
+
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('2')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      AdManager().debugResetBannerCooldown();
+      AdManager().personalisationRevision.value++; // disposes + reloads
+      await tester.pump(const Duration(milliseconds: 100));
+      final preloadsCovered = adapter.preloadBannerCalls;
+      final disposedWhileCovered = adapter.disposeBannerCalls;
+
+      navKey.currentState!.pop();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        disposedWhileCovered,
+        greaterThan(0),
+        reason: 'precondition: the handler disposed the banner instance',
+      );
+      expect(
+        adapter.preloadBannerCalls,
+        greaterThan(preloadsCovered),
+        reason:
+            'after the route pops the banner must be preloaded again, not '
+            'stay gone (didPopNext only un-pauses on AppLovin)',
       );
       await tester.pump(const Duration(milliseconds: 2500));
     },

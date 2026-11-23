@@ -173,4 +173,44 @@ void main() {
       );
     },
   );
+
+  test('a resume with NO load skipped by the gate does not refill', () async {
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.withData({
+          'IABTCF_gdprApplies': 1,
+          'IABTCF_PurposeConsents': '1011000000',
+        });
+    IabStorage.debugResetForTest();
+    await AdManager().requestUmpConsent();
+
+    final adapter = _RecordingAdapter();
+    AdManager().debugSetAdapter(adapter);
+    AdManager().debugConfig = const AdConfig(
+      provider: AdProvider.admob,
+      admob: AdMobConfig(bannerId: 'b', interstitialId: 'i', appOpenId: 'a'),
+      smartPreloadEnabled: false,
+    );
+    AdManager().debugCanRequestAds = true;
+    AdManager().debugConnectivityReady = false;
+    AdManager().debugConnectivityChanged(true);
+    addTearDown(() {
+      AdManager().debugSetAdapter(null);
+      AdManager().debugConfig = null;
+    });
+    adapter.calls.clear();
+
+    AdManager().didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await pumpEventQueue(times: 40);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(
+      adapter.calls.where(
+        (c) => c == 'loadInterstitial' || c == 'loadRewarded',
+      ),
+      isEmpty,
+      reason:
+          'an ordinary resume must not clear slot backoff and re-request '
+          'idle/cooldown fullscreen slots: nothing was skipped by the gate',
+    );
+  });
 }
