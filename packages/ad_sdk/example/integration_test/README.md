@@ -24,6 +24,22 @@ adb -s <device-id> shell pm clear com.roy.admobwrapper      # or: adb uninstall 
 
 `pm clear` only affects that one package. If you changed `applicationId` for a throwaway build, use that id.
 
+## Add `--dart-define=SKIP_SPLASH_AD=true` for tests that tap the home list
+
+The debug first-install VIP trial only lasts 30 s, and the splash App Open ad (a Google test creative) shows
+or not depending on fill and timing. When it shows it covers the home list, so `vip_redeem_flow_test.dart`
+and `round39_vip_crl_demo_button_test.dart` failed intermittently (`Bad state: No element` at the scroll, or
+"HomePage must list the ... tile"): roughly 1 run in 2 on both 3.7.10 and 3.7.11. With the flag they passed 6/6.
+The App Open tests themselves must run WITHOUT it.
+
+```bash
+flutter test integration_test/vip_redeem_flow_test.dart -d <device-id> \
+  --dart-define=AD_PROVIDER_ADMOB=true --dart-define=SKIP_SPLASH_AD=true
+```
+
+Device VIP tests also need the phone ONLINE: `redeemSignedKey` refuses offline by design, so a phone that lost
+Wi-Fi fails them with `invalid`.
+
 ## Notes
 
 - This applies to a real device or emulator you run by hand. CI installs a fresh emulator each time.
