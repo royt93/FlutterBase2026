@@ -1,0 +1,14 @@
+# Hosted 3.7.7, Pixel 7 Pro, 2026-11-23. Do not consent at the form, then Banner, MREC and Native demo screens opened (no creative touched).
+# Kept per ad request: unit (from slotname), size/format key, npa, gdpr, has_tc_string. No URL, ids, hashes or TC string.
+11-23 11:19:09.469  REQ unit=rewardedInterstitial format=interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:19:09.474  REQ unit=appOpen format=interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:19:09.484  REQ unit=rewarded format=interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:19:09.493  REQ unit=interstitial format=interstitial_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:19:36.590  REQ unit=banner/mrec-unit format=411x64_as npa=1 gdpr=1 has_tc_string=true
+11-23 11:19:36.609  REQ unit=banner/mrec-unit format=411x64_as npa=1 gdpr=1 has_tc_string=true
+11-23 11:20:22.842  REQ unit=banner/mrec-unit format=300x250_as npa=1 gdpr=1 has_tc_string=true
+11-23 11:20:22.863  REQ unit=banner/mrec-unit format=300x250_as npa=1 gdpr=1 has_tc_string=true
+11-23 11:20:22.874  REQ unit=banner/mrec-unit format=300x250_as npa=1 gdpr=1 has_tc_string=true
+11-23 11:20:48.486  REQ unit=native format=320x50_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:20:48.495  REQ unit=native format=320x50_mb npa=1 gdpr=1 has_tc_string=true
+11-23 11:20:48.499  REQ unit=native format=320x50_mb npa=1 gdpr=1 has_tc_string=true
