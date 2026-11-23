@@ -27,6 +27,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   final Map<Object, AdSlot> _bannerSlotsByKey = {};
   final Map<Object, BannerListenables> _bannerListenablesByKey = {};
   int loadBannerCalls = 0;
+  int disposeBannerCalls = 0;
 
   @override
   AdSlot bannerSlot(Object key) =>
@@ -48,6 +49,7 @@ class _BannerCountingAdapter implements AdProviderAdapter {
   bool bannerRoutePaused(Object key) => false;
   @override
   void disposeBannerInstance(Object key) {
+    disposeBannerCalls++;
     _bannerSlotsByKey.remove(key);
     _bannerListenablesByKey.remove(key);
   }
@@ -336,6 +338,59 @@ void main() {
         reason:
             'a stale didPush callback must not raise the flag while the '
             'route is covered, or didPopNext no-ops and the banner stays blank',
+      );
+      await tester.pump(const Duration(milliseconds: 2500));
+    },
+  );
+
+  testWidgets(
+    'banner loaded under AdMob is torn down when a route is pushed over it, '
+    'even if it was mounted before init',
+    (tester) async {
+      final adapter = _BannerCountingAdapter();
+      AdManager().debugCanRequestAds = true;
+      AdManager().debugResetBannerCooldown();
+      AdManager().debugConnectivityReady = false;
+      AdManager().debugConnectivityChanged(true);
+
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          navigatorObservers: [adRouteObserver],
+          home: Scaffold(body: Column(children: [const BannerAdWidget()])),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // init completes AFTER the mount: the widget has only ever seen "no config"
+      AdManager().debugVipManager = _FakeVip(false);
+      AdManager().debugConfig = _config;
+      AdManager().debugSetAdapter(adapter);
+      AdManager().initRevision.value++;
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.byKey(const ValueKey('fake-banner-view')),
+        findsOneWidget,
+        reason: 'precondition: banner is live',
+      );
+      final disposedBefore = adapter.disposeBannerCalls;
+
+      navKey.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('2')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(
+        adapter.disposeBannerCalls,
+        greaterThan(disposedBefore),
+        reason:
+            'AdMob has no pause API: a covered banner must be disposed so '
+            'its native refresh timer stops (Round-29 policy rule)',
       );
       await tester.pump(const Duration(milliseconds: 2500));
     },
