@@ -2,7 +2,7 @@
 
 - **Loại:** Hardening / quyết định sản phẩm
 - **Priority:** P2 · **Severity:** MEDIUM (chạm bảo vệ tài khoản AdMob và doanh thu)
-- **Status:** todo — điểm 2 và 5 đã sửa và phát hành (3.7.12); các điểm 1, 3, 4, 6 CHỜ QUYẾT ĐỊNH.
+- **Status:** todo — điểm 2 và 5 đã sửa và phát hành (3.7.12). Điểm 1, 3, 4: user đã chọn làm với kho an toàn mã hóa; THIẾT KẾ bên dưới chờ duyệt trước khi code. Điểm 6 vẫn chờ quyết định.
 
 Audit chỉ-đọc ngày 2026-11-23. Điểm 2 (hộp thoại Loading rồi không có quảng cáo) đã sửa và có test đỏ-xanh. Các điểm dưới đây chưa sửa vì đều là đánh đổi giữa bảo vệ tài khoản và độ bền, hoặc đổi hành vi host nhìn thấy.
 
@@ -29,6 +29,38 @@ Thay đổi host có thể thấy: `AdShowEvent.placement` và doanh thu của A
 ## Điểm 6 — Đồng hồ lùi chặn quảng cáo fullscreen tới lần khởi động kế (độ tin cậy thấp)
 
 `elapsed` âm làm `elapsed < minInterval` đúng, và `removeWhere(now - t > 3600000)` không xóa gì nên cap giờ cũng giữ. Bước lùi nhỏ ít tốn, bước lùi lớn tốn nhiều; trạng thái chỉ trong RAM.
+
+## Thiết kế đề xuất cho điểm 1, 3, 4 (2026-11-24, CHƯA CODE, chờ duyệt)
+
+User chọn làm điểm 3, 4, 1 và lưu bằng kho an toàn mã hóa có sẵn (`flutter_secure_storage`, Keystore/Keychain), theo khuôn `RedeemedKeyLedger`.
+
+### Một bản ghi, một khóa
+
+Lớp mới `SafetyStateStore` (một file nhỏ trong `lib/src/core/`) lưu một JSON dưới khóa `ad_sdk_safety_state_v1`:
+`{ "violationCount": int, "lastViolationAtMs": int, "pauseUntilMs": int, "maxObservedDay": "YYYY-MM-DD" }`.
+
+- Ghi tuần tự theo chuỗi tĩnh (`_writeChain`, giống `RedeemedKeyLedger`) để hai lần ghi gần nhau không làm mất nhau.
+- **Fail-open:** mọi lỗi đọc hoặc ghi coi như "không có trạng thái" và không bao giờ ném ra ngoài hay chặn quảng cáo.
+- Nạp một lần ở `AdSafetyConfig.init` (đã `async`). Ghi mỗi khi `_triggerSuspiciousPause` chạy và khi mốc ngày tăng.
+
+### Điểm 3 (suy giảm vi phạm qua restart)
+
+Nạp `lastViolationAtMs` vào `_lastViolationTimestamp` lúc `init`. Khi đó `_decayViolationCount` (đã có) tự suy giảm nửa mỗi 24 giờ kể từ vi phạm cuối, đúng như comment hứa. `violationCount` vẫn do `AdPreferences.getSuspiciousCount()` cung cấp (không di chuyển, tránh phá dữ liệu cũ); kho mới chỉ thêm các trường còn thiếu.
+
+### Điểm 4 (tạm dừng sống sót qua restart)
+
+Nạp `pauseUntilMs` vào `_suspiciousPauseUntil` lúc `init`. Rủi ro cần chặn: nếu đồng hồ nhảy tiến rất xa thì `pauseUntilMs` có thể đã nằm xa trong tương lai; chặn bằng cách kẹp tối đa `_maxSuspiciousPause` (24 giờ) kể từ bây giờ lúc nạp. `resetSession` hiện đặt `_suspiciousPauseUntil = 0` (comment nói "giống restart"); sau thay đổi này `resetSession` KHÔNG được xóa bản lưu, nếu không thì `destroy()` + `initialize()` vẫn xóa được lệnh tạm dừng (đúng lỗ hổng điểm 4).
+
+### Điểm 1 (đồng hồ nhảy tiến)
+
+Chuyển mốc `maxObservedDay` sang kho an toàn (khó sửa tay hơn `SharedPreferences`) và kẹp: mốc không được vượt quá `ngày thật + 2` ngày. Đồng hồ nhảy tới 2030 một lần thì mốc chỉ lên tối đa ngày thật + 2, rồi tự bắt kịp. Tua lùi đồng hồ vẫn không reset được cap (mốc không bao giờ giảm trừ trường hợp bị kẹp xuống trần). Test round-37 "forward clock jump pins today" hiện đang khẳng định hành vi ghim vĩnh viễn, nên SẼ phải đổi thành "ghim tối đa N ngày": đó là thay đổi quyết định sản phẩm, cần user xác nhận N.
+
+### Rủi ro cần user cân nhắc
+
+1. **Mất khả năng gỡ:** nếu thiết bị lưu trạng thái chặn trong Keychain iOS thì gỡ app không xóa (Keychain sống sót qua gỡ cài đặt). Lệnh tạm dừng tối đa 24 giờ nên hậu quả giới hạn; `clearSdkData(all...)` phải xóa bản ghi này.
+2. **Khóa oan:** người dùng bình thường bị tạm dừng 24 giờ thật sự kéo dài qua restart (thay vì mất khi tắt app). Đó chính là ý định, nhưng làm chậm hơn việc app thoát khỏi tạm dừng nhầm do CTR sai.
+3. **Dung lượng `lib`:** đang đúng trần 2048KB (đo `du -k` từng file). Một file mới ~4KB làm tổng tăng 4KB, nên phải cắt tương ứng ở chỗ khác.
+4. **Test:** mỗi điểm cần test đỏ trước; thêm test cho fail-open (đọc lỗi), cho clamp `pauseUntilMs`, cho `clearSdkData`, và cho việc `resetSession`/`destroy()` không xóa bản ghi.
 
 ## Acceptance Criteria (khi quyết định làm)
 
