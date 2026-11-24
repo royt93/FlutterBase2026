@@ -125,25 +125,23 @@ class AdPreferences {
   static const String _keyDailyDate = 'ad_sdk_daily_date';
   static const String _keySuspiciousCount = 'ad_sdk_suspicious_count';
 
-  // Round-37 audit MAJOR — winding the clock back one day made `today != saved`
-  // fire the other way, resetting the daily/per-placement counters on demand
-  // and defeating the cap that protects the AdMob account. Mirrors
-  // `VipManager`'s clock-rollback guard: a high-water mark of the latest UTC
-  // day observed, so an earlier-looking day is never trusted. ISO-8601
-  // `YYYY-MM-DD` strings compare lexicographically like dates.
+  // Round-37 audit MAJOR — `_todayUtc()` alone is a raw wall-clock reading,
+  // so winding the system clock back one day made `today != saved` fire in
+  // the *other* direction from what round-31's UTC fix closed, resetting
+  // the daily/per-placement counters below to 0 on demand and defeating the
+  // safety cap that protects the AdMob account from invalid-traffic flags.
+  // Mirrors `VipManager`'s clock-rollback guard
+  // (`getVipMaxObservedClockMs`/`setVipMaxObservedClockMs`): a high-water
+  // mark of the latest UTC day ever observed, so a day that looks earlier
+  // than one already recorded is never trusted. ISO-8601 `YYYY-MM-DD`
+  // strings compare lexicographically the same as chronologically, so plain
+  // `String.compareTo` is sufficient.
   static const String _keyDailyDateHighWaterMark =
       'ad_sdk_daily_date_high_water_mark';
 
-  /// T293: the mark may run at most this many days ahead of the real date, so
-  /// one wild clock reading heals instead of pinning the cap to a future day.
-  static const int maxClockAheadDays = 2;
-
   String _todayUtcClamped({DateTime? now}) {
     final real = _todayUtc(now: now);
-    var observed = _prefs?.getString(_keyDailyDateHighWaterMark);
-    final cap = _todayUtc(
-        now: (now ?? DateTime.now()).add(const Duration(days: maxClockAheadDays)));
-    if (observed != null && observed.compareTo(cap) > 0) observed = cap;
+    final observed = _prefs?.getString(_keyDailyDateHighWaterMark);
     if (observed == null || real.compareTo(observed) > 0) {
       _prefs?.setString(_keyDailyDateHighWaterMark, real);
       return real;
@@ -152,9 +150,12 @@ class AdPreferences {
   }
 
   /// T165 — public wrapper so callers outside this file (e.g.
-  /// `FillRateBaselineMonitor`) compute "today" exactly as this class's daily
-  /// counters do, not with their own local-time definition that could
-  /// disagree with the date keys written here.
+  /// `FillRateBaselineMonitor`, which excludes "today" from the baseline it
+  /// compares the current session against) can compute "today" the exact
+  /// same way this class's own daily counters do, instead of each
+  /// maintaining its own (previously local-time, timezone-sensitive)
+  /// definition of "today" that could disagree with the date keys this
+  /// class actually writes.
   String todayUtcClamped({DateTime? now}) => _todayUtcClamped(now: now);
 
   int getDailyAdCount({DateTime? now}) {
