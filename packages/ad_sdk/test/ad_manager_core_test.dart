@@ -5162,6 +5162,132 @@ void main() {
       },
     );
 
+    // Audit of the safety layer (2026-11-23) — `canShowAppOpenOnResume` checks
+    // only the throttle / cold start / background time / rapid resumes, NOT the
+    // hourly, session or daily caps. A resume with the hourly cap already spent
+    // showed the "Loading…" overlay for the buffer time, then `showAppOpenAd`
+    // (bypassSafety: false) was refused by the strict gate and dismissed
+    // silently: the user saw a spinner and no ad.
+    testWidgets(
+      'resume with the hourly cap spent does not show the Loading overlay',
+      (tester) async {
+        final prefs = await AdPreferences.getInstance();
+        await AdSafetyConfig.init(
+          prefs,
+          params: const AdSafetyParams(
+            minTimeBetweenFullscreenAds: 0,
+            maxFullscreenAdsPerSession: 999,
+            maxFullscreenAdsPerHour: 1,
+            maxFullscreenAdsPerDay: 999,
+            minSessionDurationBeforeAd: 0,
+            minTimeAppOpenResume: 0,
+            maxClicksPerMinute: 999,
+            suspiciousCtrThreshold: 1.0,
+            maxRapidResumesPerMinute: 999,
+            dryRun: false,
+            maxSameNetworkShowsPerWindow: 999,
+          ),
+        );
+        AdSafetyConfig.resetForReinit();
+        AdSafetyConfig.recordFullscreenAdShown(); // spends the hour's one slot
+        expect(
+          AdSafetyConfig.canShowFullscreenAdPeek(forType: AdSlotType.appOpen)
+              .canShow,
+          isFalse,
+          reason: 'precondition: the hourly cap blocks a fullscreen ad',
+        );
+
+        final navigatorKey = GlobalKey<NavigatorState>();
+        AdManager().setNavigatorKey(navigatorKey);
+        AdManager().debugConfig = _admobConfig(
+          dryRun: false,
+          testIds: true,
+          loadingBufferMs: 100,
+        );
+        await tester.pumpWidget(
+          MaterialApp(navigatorKey: navigatorKey, home: const Scaffold()),
+        );
+        adapter.appOpenSlot.beginLoad();
+        adapter.appOpenSlot.markReady();
+
+        AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
+        AdManager().showAppOpenAdOnResume(); // would reach showAdBuffer
+        await tester.pump(const Duration(milliseconds: 20));
+
+        expect(AdLoadingDialog.isShowing, isFalse,
+            reason: 'the ad is certain to be refused, so no spinner either');
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(adapter.showAppOpenCalls, 0);
+        AdLoadingDialog.resetState();
+      },
+    );
+
+    // Audit of the safety layer (2026-11-23) — the resume App Open goes through
+    // `showAppOpenAd`'s default `AdPlacement.splash`, so the README's own
+    // example `maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}` (meant to
+    // limit the cold-start splash ad) is spent by the splash show and then
+    // blocks every later resume App Open for the rest of the UTC day.
+    testWidgets(
+      'a per-day cap on the splash placement still lets a resume App Open show',
+      // Known gap, see T293: the resume path reuses AdPlacement.splash.
+      skip: true,
+      (tester) async {
+        final prefs = await AdPreferences.getInstance();
+        await AdSafetyConfig.init(
+          prefs,
+          params: AdSafetyParams.debug.copyWith(
+            minTimeBetweenFullscreenAds: 0,
+            maxPerPlacementAdsPerDay: {AdPlacement.splash: 1},
+          ),
+        );
+        AdSafetyConfig.resetForReinit();
+        final navigatorKey = GlobalKey<NavigatorState>();
+        AdManager().setNavigatorKey(navigatorKey);
+        AdManager().debugConfig = _admobConfig(
+          dryRun: false,
+          testIds: true,
+          loadingBufferMs: 50,
+          smartPreload: false,
+        );
+        await tester.pumpWidget(
+          MaterialApp(navigatorKey: navigatorKey, home: const Scaffold()),
+        );
+        adapter.appOpenSlot.beginLoad();
+        adapter.appOpenSlot.markReady();
+
+        // The cold-start splash ad is shown (bypassSafety, as the contract says).
+        bool? splashDismissed;
+        await AdManager().showAppOpenAd(
+          bypassSafety: true,
+          onAdDismiss: (d) => splashDismissed = d,
+        );
+        expect(splashDismissed, isTrue, reason: 'precondition: splash shown');
+        expect(
+          AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
+          isTrue,
+          reason: 'precondition: the splash placement cap is spent',
+        );
+
+        // Later, on resume, the SDK calls showAppOpenAd exactly like this
+        // (default placement, bypassSafety false). Calling it directly keeps
+        // the unrelated "dismissed an ad <5 s ago" resume guard out of the way.
+        adapter.appOpenSlot.beginReload();
+        adapter.appOpenSlot.markReady();
+        final before = adapter.showAppOpenCalls;
+        bool? resumeDismissed;
+        await AdManager().showAppOpenAd(
+          bypassSafety: false,
+          onAdDismiss: (d) => resumeDismissed = d,
+        );
+
+        expect(resumeDismissed, isTrue,
+            reason: 'the resume App Open is a different surface from the '
+                'splash: the splash cap must not block it');
+        expect(adapter.showAppOpenCalls, before + 1);
+        AdLoadingDialog.resetState();
+      },
+    );
+
     testWidgets(
       'destroy() while the resume loading buffer is pending: onComplete '
       'neither shows through the torn-down adapter nor throws',

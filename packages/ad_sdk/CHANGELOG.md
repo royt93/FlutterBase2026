@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+- **Fixed (resume App Open: spinner and no ad):** the resume gate `canShowAppOpenOnResume` checked only the throttle, cold start, background time and rapid resumes, not the hourly, session or daily caps. With a cap already spent, a resume showed the SDK's "Loading…" overlay for the buffer time and then `showAppOpenAd` refused the ad through the strict gate and dismissed silently. The resume gate now also asks the strict (side-effect-free) show gate before the overlay appears. Red before, green after (`test/ad_manager_core_test.dart`). Found by an independent audit of the safety layer; the other findings are in T293 awaiting a decision.
+
 ## [3.7.11] - 2026-11-23
 
 - **Fixed (VIP stacked on a revoked entry):** redeeming a valid key while the stack base entry was already revoked and clamped to the 24 h grace made the new entry inherit the revoked key's provenance, so the next CRL pass clamped the WHOLE new window to about a day, not just the part carried over. A revoked entry is no longer used as a stack base (also covers a WATCH_AD stack on top of one). Red before (a 30-day key left with 0 days), green after (`test/vip_revocation_test.dart`). Found by an independent review.

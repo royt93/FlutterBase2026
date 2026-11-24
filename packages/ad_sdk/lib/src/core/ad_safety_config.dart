@@ -814,8 +814,17 @@ class AdSafetyConfig {
         now - _lastBackgroundTime,
       );
     }
-    final result = _canShowAppOpenOnResumeStrict(
+    var result = _canShowAppOpenOnResumeStrict(
         recordSideEffects: true, minIntervalOverrideMs: minIntervalOverrideMs);
+    // The resume gate above knows nothing about the hourly/session/daily caps,
+    // so the SDK showed its Loading overlay and `showAppOpenAd` then refused
+    // the ad: a spinner with no ad. Ask the strict show gate up front instead.
+    if (result.canShow) {
+      result = _canShowFullscreenAdStrict(
+          recordViolation: false,
+          forType: AdSlotType.appOpen,
+          minIntervalOverrideMs: minIntervalOverrideMs);
+    }
     if (!result.canShow && _params.dryRun) {
       SafeLogger.w(_tag,
           '⚠️ dryRun: would have blocked App Open on resume — allowing (${result.reason})');
