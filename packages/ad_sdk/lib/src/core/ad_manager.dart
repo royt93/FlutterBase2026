@@ -1719,6 +1719,7 @@ class AdManager with WidgetsBindingObserver {
         await prefs.clearConsentProvenanceJournal();
       }
     }
+    await eraseSafetyStateForFullErasure(); // every scope (owner decision)
     if (scope == SdkDataErasureScope.allIncludingEntitlements) {
       final vip = _vipManager;
       if (vip != null) {
@@ -1729,7 +1730,6 @@ class AdManager with WidgetsBindingObserver {
       } else {
         await VipManager.eraseSecureEntitlementStorage(prefs);
       }
-      await eraseSafetyStateForFullErasure();
       // Round-49 audit fix (MAJOR): do NOT erase the iOS Keychain
       // `FirstInstallGuard` flag here. It must survive a local-data wipe so
       // "erase my data" cannot re-grant the first-install VIP trial.

@@ -158,11 +158,10 @@ void main() {
         reason: 'a host clearing session counters must not erase the pause');
   });
 
-  // The record is anti-abuse data guarding the AdMob account, so it follows the
-  // entitlement data (and the iOS first-install flag): the DEFAULT erasure scope
-  // keeps it, or a host "clear my data" button would also clear an
-  // invalid-traffic pause (the point-4 hole). Only the explicit
-  // allIncludingEntitlements scope erases it.
+  // Owner decision (2026-11-24): a data-erasure request must leave no trace, so
+  // the record is erased at EVERY scope, accepting that a host "clear my data"
+  // button can therefore also clear an invalid-traffic pause. (An earlier
+  // version kept it at the default scope to protect against exactly that.)
   group('clearSdkData', () {
     Future<void> trip() async {
       AdSafetyConfig.resetForReinit();
@@ -173,10 +172,12 @@ void main() {
       expect(store.raw, isNotNull, reason: 'precondition: a record is stored');
     }
 
-    test('the default scope keeps the stored pause', () async {
+    test('the default scope erases it too', () async {
       await trip();
       await AdManager().clearSdkData();
-      expect(store.raw, isNotNull);
+      expect(store.raw, isNull,
+          reason: 'an erasure request must not leave the record behind');
+      expect(AdSafetyConfig.isInvalidTrafficPauseActive, isFalse);
     });
 
     test('allIncludingEntitlements erases it', () async {
