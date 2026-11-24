@@ -18,6 +18,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _MockSecureStorage extends Mock implements FlutterSecureStorage {}
 
+class _MockAdPrefs extends Mock implements AdPreferences {}
+
 const _secureKey = 'ad_sdk_vip_entries_v1';
 const _legacyKey = 'ad_sdk_vip_entries';
 
@@ -272,6 +274,73 @@ void main() {
       );
     },
   );
+
+  // Review of T292: after the delete the secure copy is empty and the fallback
+  // is present, which is exactly the M6 "planted fallback" shape. A genuine
+  // newer entry must not be flagged untrusted just because we cleaned up.
+  test('a fallback we wrote ourselves after a failed write is not untrusted',
+      () async {
+    final storage = _MockSecureStorage();
+    String? persisted = '[{"key":"OLD"}]';
+    String? probe;
+    var failWrites = false;
+    when(() => storage.read(key: any(named: 'key'))).thenAnswer((inv) async =>
+        inv.namedArguments[#key] == _secureKey ? persisted : probe);
+    when(() => storage.write(key: any(named: 'key'), value: any(named: 'value')))
+        .thenAnswer((inv) async {
+      if (failWrites) throw Exception('transient');
+      if (inv.namedArguments[#key] == _secureKey) {
+        persisted = inv.namedArguments[#value] as String;
+      } else {
+        probe = inv.namedArguments[#value] as String;
+      }
+    });
+    when(() => storage.delete(key: any(named: 'key'))).thenAnswer((inv) async {
+      if (inv.namedArguments[#key] == _secureKey) {
+        persisted = null;
+      } else {
+        probe = null;
+      }
+    });
+    final store = VipEntriesStore(prefs, secureStorage: storage);
+
+    failWrites = true;
+    await store.setRaw('[{"key":"NEW"}]');
+    failWrites = false;
+
+    expect(await store.getRaw(), '[{"key":"NEW"}]');
+    expect(store.lastReadWasUntrustedFallback, isFalse,
+        reason: 'our own post-failure fallback is genuine, not an M6 plant');
+  });
+
+  test('secure write fails and the fallback cannot be stored: keep the old '
+      'secure copy rather than leave nothing (T292 review)', () async {
+    final storage = _MockSecureStorage();
+    String? persisted = '[{"key":"OLD"}]';
+    var deleted = false;
+    when(() => storage.read(key: any(named: 'key')))
+        .thenAnswer((inv) async =>
+            inv.namedArguments[#key] == _secureKey ? persisted : null);
+    when(() => storage.write(key: any(named: 'key'), value: any(named: 'value')))
+        .thenThrow(StateError('keystore write broken'));
+    when(() => storage.delete(key: any(named: 'key'))).thenAnswer((_) async {
+      deleted = true;
+      persisted = null;
+    });
+    // Prefs that silently drop the fallback write, as when SharedPreferences
+    // itself fails: nothing is stored, so getVipEntriesFallbackRaw() is null.
+    final dead = _MockAdPrefs();
+    when(() => dead.setVipEntriesFallbackRaw(any())).thenAnswer((_) async {});
+    when(() => dead.getVipEntriesFallbackRaw()).thenReturn(null);
+    when(() => dead.isVipEntriesSecureMigrated()).thenReturn(false);
+    when(() => dead.markVipEntriesSecureMigrated()).thenAnswer((_) async {});
+    when(() => dead.clearVipEntriesFallbackRaw()).thenAnswer((_) async {});
+    final store2 = VipEntriesStore(dead, secureStorage: storage);
+    await store2.setRaw('[{"key":"NEW"}]');
+    expect(deleted, isFalse,
+        reason: 'the only remaining copy must not be deleted');
+    expect(persisted, '[{"key":"OLD"}]');
+  });
 
   test('write AND delete both failing still serves the newer fallback (T292)',
       () async {

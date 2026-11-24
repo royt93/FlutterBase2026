@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../state/ad_slot.dart' show AdSlotType;
 import '../utils/ad_preferences.dart';
 import '../utils/safe_logger.dart';
 import 'compliance_signing.dart';
@@ -81,10 +82,9 @@ class FlightRecorderEntry {
 
   /// Milliseconds between the most recent `'*Visible'` entry for this same
   /// (slotType, placement) and this entry, when [touchActive] is true — i.e.
-  /// "how long the ad had been on screen before this interaction". `0` when
-  /// there is no prior visible entry to measure from, or for a non-touch
-  /// entry (visibility/consent transitions carry `0` here; they are not an
-  /// interaction).
+  /// "how long the ad had been on screen before this interaction". `0` means
+  /// unknown, not an instant click: no prior visible entry, a non-touch entry,
+  /// or a fullscreen ad (its visible entry only lands at dismiss, T291).
   final int interactionDurationMs;
 
   /// Hex SHA-256 of the previous entry's [hash], or `''` for the first
@@ -446,7 +446,7 @@ class AdFlightRecorder {
   ///
   /// [interactionDurationMs] is computed automatically when [touchActive]
   /// is true: milliseconds since the most recent `'*Visible'` entry for the
-  /// same `(slotType, placement)`, or `0` if there is none — see
+  /// same `(slotType, placement)` of an inline format, else `0` — see
   /// [FlightRecorderEntry.interactionDurationMs]'s doc comment.
   // T233 — public entry point now only enqueues onto `_writeChain`, so
   // concurrent unawaited callers still run their read-hash-append
@@ -561,11 +561,17 @@ class AdFlightRecorder {
     }
   }
 
+  static final Set<String> _inlineSlotNames = {
+    AdSlotType.banner.name,
+    AdSlotType.mrec.name,
+    AdSlotType.native.name,
+  };
+
   int _msSinceLastVisible(
       {required String slotType, required String placement, required int ts}) {
     // T291: a fullscreen show's visible entry lands only at dismiss, so any
     // earlier one belongs to the previous ad. Unknown is 0, not a stale span.
-    if (!const {'banner', 'mrec', 'native'}.contains(slotType)) return 0;
+    if (!_inlineSlotNames.contains(slotType)) return 0;
     for (var i = _entries.length - 1; i >= 0; i--) {
       final e = _entries[i];
       if (e.slotType == slotType &&

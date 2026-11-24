@@ -1246,10 +1246,8 @@ class AdManager with WidgetsBindingObserver {
   // are now timestamped at the one real event this SDK actually observes
   // (dismiss).
   //
-  // Label is 'fullscreenVisible' (not 'fullscreenShown') so it matches
-  // [AdFlightRecorder._msSinceLastVisible]'s `endsWith('visible')` lookup —
-  // 'fullscreenShown' silently zeroed `interactionDurationMs` for every
-  // fullscreen click evidence entry.
+  // Label stays 'fullscreenVisible'. Fullscreen clicks record
+  // `interactionDurationMs` 0 (unknown, T291): this entry lands only at dismiss.
   //
   // Still called `unawaited` from each show*() dismiss callback — those
   // callbacks are `void Function(...)` on the public [AdProviderAdapter]

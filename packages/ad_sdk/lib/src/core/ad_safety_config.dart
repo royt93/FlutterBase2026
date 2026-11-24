@@ -1133,6 +1133,7 @@ class AdSafetyConfig {
   /// Record that the app went to background.
   static void recordAppWentBackground() {
     final now = DateTime.now().millisecondsSinceEpoch;
+    _healBackwardClock(now);
     _lastBackgroundTime = now;
     _backgroundToResumeSignalPending = true;
     _pendingResumeGate = true;
@@ -1350,9 +1351,8 @@ class AdSafetyConfig {
     }
   }
 
-  /// T293 pt 6: a clock moved back leaves show times in the future, so the
-  /// throttle and hourly cap would hold until it catches up. Clamp to [now]:
-  /// they still hold from this moment, they are never lifted.
+  /// T293 pt 6: clock moved back leaves show times in the future; clamp to
+  /// [now] so gates hold from this moment, never lifted.
   static void _healBackwardClock(int now) {
     if (_lastFullscreenAdTime > now) _lastFullscreenAdTime = now;
     for (var i = 0; i < _hourlyAdTimestamps.length; i++) {

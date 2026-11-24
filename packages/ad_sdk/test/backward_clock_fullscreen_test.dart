@@ -1,6 +1,7 @@
 // T293 point 6 — a device clock moved BACK after a fullscreen ad left the
 // throttle and the hourly cap holding until the clock caught up again.
 import 'package:applovin_admob_sdk/applovin_admob_sdk.dart';
+import 'package:applovin_admob_sdk/src/adaptive/adaptive_frequency.dart';
 import 'package:applovin_admob_sdk/src/utils/ad_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,6 +43,17 @@ void main() {
     expect(allowed(), isFalse);
     expect(AdSafetyConfig.canShowFullscreenAdPeek().reason,
         anyOf(contains('Hourly'), contains('Throttle')));
+  });
+
+  test('a rewound clock does not fake an ad_to_background signal with a '
+      'negative gap (review)', () {
+    AdaptiveFrequencySignals.reset();
+    AdSafetyConfig.recordFullscreenAdShown();
+    AdSafetyConfig.debugMoveClockBack(const Duration(days: 1));
+    AdSafetyConfig.recordAppWentBackground();
+    for (final e in AdaptiveFrequencySignals.entries) {
+      expect(e.gapMs, greaterThanOrEqualTo(0), reason: '${e.kind} gap');
+    }
   });
 
   test('without any rewind the throttle is unchanged', () {

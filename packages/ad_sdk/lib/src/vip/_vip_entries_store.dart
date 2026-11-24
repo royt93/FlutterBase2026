@@ -111,8 +111,9 @@ class VipEntriesStore {
       // [lastReadWasUntrustedFallback].
       // A failed entries read tells us nothing about the fallback's
       // provenance, so a healthy probe after one is not evidence.
-      lastReadWasUntrustedFallback =
-          !_lastSecureReadErrored && await _secureStorageWorks();
+      lastReadWasUntrustedFallback = fallback != _ownFallback &&
+          !_lastSecureReadErrored &&
+          await _secureStorageWorks();
       if (lastReadWasUntrustedFallback) {
         SafeLogger.w(
             _tag,
@@ -168,6 +169,7 @@ class VipEntriesStore {
     // Idempotent: a fresh install whose first VIP action is a write (not a
     // read) shouldn't later pay the legacy-fallback check on its first load().
     if (wrote) {
+      _ownFallback = null;
       await _legacyPrefs.markVipEntriesSecureMigrated();
       // T71 — Keystore just recovered (or always worked): drop any stale
       // fallback copy so a future getRaw() doesn't prefer outdated data.
@@ -177,13 +179,27 @@ class VipEntriesStore {
       // prefixed) so a legitimate VIP grant isn't lost entirely.
       await _legacyPrefs.setVipEntriesFallbackRaw(json);
       // T292: drop the older secure copy so a healed Keystore cannot hand it
-      // back over this newer one. If the delete fails too, the Keystore is
-      // still broken and getRaw() already prefers the fallback.
+      // back over this newer one, but only once the fallback really landed
+      // (it silently fails without prefs). If the delete fails too the
+      // Keystore is still broken and getRaw() already prefers the fallback.
+      if (_legacyPrefs.getVipEntriesFallbackRaw() != json) return;
       try {
         await _secure.delete(key: _secureKey);
-      } catch (_) {/* see above */}
+      } catch (_) {
+        return;
+      }
+      // Secure is now empty: retry once so a transient failure ends consistent.
+      if (await _writeSecure(json)) {
+        await _legacyPrefs.markVipEntriesSecureMigrated();
+        await _legacyPrefs.clearVipEntriesFallbackRaw();
+      } else {
+        _ownFallback = json; // ours, so a healthy probe later is not M6
+      }
     }
   }
+
+  /// Fallback JSON this instance wrote itself after a failed secure write.
+  String? _ownFallback;
 
   /// Set when the last [_readSecure] FAILED, as opposed to finding nothing.
   ///
