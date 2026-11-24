@@ -80,4 +80,97 @@ void main() {
         reason: 'inline (banner/MREC/native) clicks must never count toward '
             'the fullscreen-only CTR ratio');
   });
+
+  // Review of the resume-gate change (2026-11-24) — the resume gate now asks the
+  // strict show gate WITHOUT recording a violation, so a CTR block on resume
+  // never advanced `_ctrPauseTriggeredAtImpressionCount`. The round-31 rule
+  // ("skip the CTR gate for the next 5 impressions once it tripped") is the only
+  // way out of a stale ratio, and it needs a recorded violation to arm. If every
+  // attempt is a resume, nothing ever arms it: a permanent block.
+  test('a CTR block on resume is not permanent when only resumes are tried',
+      () {
+    for (var i = 0; i < 5; i++) {
+      AdSafetyConfig.recordFullscreenAdShown();
+    }
+    for (var i = 0; i < 5; i++) {
+      AdSafetyConfig.recordAdClick(fullscreen: true);
+    }
+
+    AdSafetyConfig.canShowAppOpenOnResume(); // consumes the cold-start skip
+    AdSafetyConfig.recordAppWentBackground();
+    final first = AdSafetyConfig.canShowAppOpenOnResume();
+    expect(first.canShow, isFalse, reason: 'precondition: CTR blocks resume');
+    expect(first.reason.toLowerCase(), contains('ctr'));
+
+    // The user keeps resuming the app; the app never shows another ad. Once the
+    // 30-minute invalid-traffic pause that the resume path now arms has run out
+    // the CTR gate must let the next attempt through (the round-31 skip).
+    AdSafetyConfig.debugExpireSuspiciousPause();
+    var unblocked = false;
+    for (var i = 0; i < 12; i++) {
+      AdSafetyConfig.recordAppWentBackground();
+      final r = AdSafetyConfig.canShowAppOpenOnResume();
+      if (r.canShow) {
+        unblocked = true;
+        break;
+      }
+    }
+    expect(unblocked, isTrue,
+        reason: 'the resume path must record the violation like every other '
+            'show path, or a stale CTR keeps blocking it forever');
+  });
+
+  // Review of the resume-gate change: every cap the strict show gate enforces
+  // must also stop the resume gate, so the SDK never shows its Loading overlay
+  // for an App Open it is about to refuse.
+  group('resume gate honours the fullscreen caps', () {
+    Future<void> configure(AdSafetyParams params) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await AdPreferences.getInstance();
+      await AdSafetyConfig.init(prefs, params: params);
+      AdSafetyConfig.resetForReinit();
+      AdSafetyConfig.canShowAppOpenOnResume(); // consumes the cold-start skip
+      AdSafetyConfig.recordAppWentBackground();
+    }
+
+    test('session cap', () async {
+      await configure(AdSafetyParams.debug.copyWith(
+        minTimeBetweenFullscreenAds: 0,
+        maxFullscreenAdsPerSession: 1,
+      ));
+      AdSafetyConfig.recordFullscreenAdShown();
+      expect(AdSafetyConfig.canShowAppOpenOnResume().canShow, isFalse);
+      expect(AdSafetyConfig.canShowAppOpenOnResumePeek().canShow, isFalse);
+    });
+
+    test('daily cap', () async {
+      await configure(AdSafetyParams.debug.copyWith(
+        minTimeBetweenFullscreenAds: 0,
+        maxFullscreenAdsPerDay: 1,
+      ));
+      AdSafetyConfig.recordFullscreenAdShown();
+      expect(AdSafetyConfig.canShowAppOpenOnResume().canShow, isFalse);
+      expect(AdSafetyConfig.canShowAppOpenOnResumePeek().canShow, isFalse);
+    });
+
+    test('dryRun still allows it, annotated with the original reason',
+        () async {
+      await configure(AdSafetyParams.debug.copyWith(
+        minTimeBetweenFullscreenAds: 0,
+        maxFullscreenAdsPerSession: 1,
+        dryRun: true,
+      ));
+      AdSafetyConfig.recordFullscreenAdShown();
+      final r = AdSafetyConfig.canShowAppOpenOnResume();
+      expect(r.canShow, isTrue);
+      expect(r.reason, contains('dryRun-bypass'));
+    });
+
+    test('no cap spent: resume is allowed', () async {
+      await configure(AdSafetyParams.debug.copyWith(
+        minTimeBetweenFullscreenAds: 0,
+      ));
+      expect(AdSafetyConfig.canShowAppOpenOnResume().canShow, isTrue);
+    });
+  });
 }

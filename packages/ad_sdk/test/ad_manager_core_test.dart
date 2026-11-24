@@ -5210,6 +5210,11 @@ void main() {
         adapter.appOpenSlot.beginLoad();
         adapter.appOpenSlot.markReady();
 
+        expect(
+          AdSafetyConfig.canShowAppOpenOnResumePeek().canShow,
+          isFalse,
+          reason: 'the side-effect-free peek must agree with the real gate',
+        );
         AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
         AdManager().showAppOpenAdOnResume(); // would reach showAdBuffer
         await tester.pump(const Duration(milliseconds: 20));

@@ -818,10 +818,12 @@ class AdSafetyConfig {
         recordSideEffects: true, minIntervalOverrideMs: minIntervalOverrideMs);
     // The resume gate above knows nothing about the hourly/session/daily caps,
     // so the SDK showed its Loading overlay and `showAppOpenAd` then refused
-    // the ad: a spinner with no ad. Ask the strict show gate up front instead.
+    // the ad: a spinner with no ad. Ask the strict show gate up front instead,
+    // recording violations like every other show path: without that a CTR
+    // block on resume never arms the round-31 skip and stays blocked forever.
     if (result.canShow) {
       result = _canShowFullscreenAdStrict(
-          recordViolation: false,
+          recordViolation: true,
           forType: AdSlotType.appOpen,
           minIntervalOverrideMs: minIntervalOverrideMs);
     }
@@ -851,9 +853,16 @@ class AdSafetyConfig {
   /// [canShowAppOpenOnResume].
   static AdSafetyResult canShowAppOpenOnResumePeek(
       {int? minIntervalOverrideMs}) {
-    final result = _canShowAppOpenOnResumeStrict(
+    var result = _canShowAppOpenOnResumeStrict(
         recordSideEffects: false,
         minIntervalOverrideMs: minIntervalOverrideMs);
+    // Same extra cap check as [canShowAppOpenOnResume], so the two agree.
+    if (result.canShow) {
+      result = _canShowFullscreenAdStrict(
+          recordViolation: false,
+          forType: AdSlotType.appOpen,
+          minIntervalOverrideMs: minIntervalOverrideMs);
+    }
     if (!result.canShow && _params.dryRun) {
       return AdSafetyResult(true, 'dryRun-bypass(${result.reason})');
     }
