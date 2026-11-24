@@ -4,7 +4,7 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.7.14] - 2026-11-24
 
 - **Fixed (T292: stale VIP copy beat a newer one after the Keystore healed):** when the secure write fails, `VipEntriesStore.setRaw` now writes the fallback and then deletes the older secure copy, so a Keystore that works again cannot hand the old (e.g. pre-refund) entries back over the new ones. If the delete fails too the Keystore is still broken and the fallback is already preferred. No format change.
 - **Fixed (T293 point 6: a device clock moved back blocked fullscreen ads):** after an ad, moving the clock back left the last-show time and the hourly timestamps in the future, so the throttle and hourly cap held until the clock caught up (a day back meant about a day). They are now clamped to the current time at the next check: the gates still hold from that moment, and are never lifted. Test seam `debugMoveClockBack` (not exported).
