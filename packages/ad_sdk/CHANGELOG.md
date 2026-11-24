@@ -6,6 +6,8 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 ## [Unreleased]
 
+## [3.7.12] - 2026-11-24
+
 - **Fixed (resume App Open: spinner and no ad):** the resume gate `canShowAppOpenOnResume` checked only the throttle, cold start, background time and rapid resumes, not the hourly, session or daily caps. With a cap already spent, a resume showed the SDK's "Loading…" overlay for the buffer time and then `showAppOpenAd` refused the ad through the strict gate and dismissed silently. The resume gate now also asks the strict show gate before the overlay appears, and `canShowAppOpenOnResumePeek` agrees with it. The strict gate is asked WITH violation recording, like every other show path: a first version that did not record one let a CTR block on resume never arm the round-31 skip, which a review caught as a permanent block (test added, red on that version). Because the strict gate also covers the suspicious-pause, session-age and CTR checks, the resume path now inherits all of them, not only the caps. The resume App Open now uses its own placement, `AdPlacement.custom('app_open_resume')`, instead of the default `AdPlacement.splash`: a per-day cap on `splash` (the README example `maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}`) was spent by the splash ad and then blocked every later resume App Open for the rest of the UTC day. **Behaviour change a host can see:** `AdShowEvent.placement` and revenue for a resume App Open now read `app_open_resume`, and a `PlacementRegistry` entry for `splash` no longer applies to resumes (register one for `app_open_resume`, `format: appOpen`, to limit them). Red before, green after. Found by independent reviews of the safety layer.
 
 ## [3.7.11] - 2026-11-23
