@@ -202,6 +202,8 @@ class AdManager with WidgetsBindingObserver {
   /// `showRewardedAd`/`showAppOpenAd`/`showRewardedInterstitialAd` calls
   /// that happen to reuse that same id — the exact opposite of what a
   /// required `format` field on the spec is supposed to prevent.
+  static const _resumeAppOpenPlacement = AdPlacement.custom('app_open_resume');
+
   int? _placementCapOverride(AdPlacement placement, AdSlotType actualFormat) {
     final spec = _config?.placements?[placement.id];
     if (spec == null || spec.format != actualFormat) return null;
@@ -8372,12 +8374,10 @@ class AdManager with WidgetsBindingObserver {
               '⏭️ skipping app-open on resume (recent fullscreen dismiss ${dismissDelta}ms ago)');
       return;
     }
-    // T181 (codex round-1 fix) — AdPlacement.splash matches showAppOpenAd's
-    // own default placement, which is what the subsequent successful-resume
-    // show call below actually uses.
+    // Same placement as the show calls below (T181).
     final safetyResume = AdSafetyConfig.canShowAppOpenOnResume(
         minIntervalOverrideMs: _placementMinIntervalOverride(
-            AdPlacement.splash, AdSlotType.appOpen));
+            _resumeAppOpenPlacement, AdSlotType.appOpen));
     if (!safetyResume.canShow) {
       SafeLogger.d(
           _tag,
@@ -8416,13 +8416,9 @@ class AdManager with WidgetsBindingObserver {
           return;
         }
         unawaited(showAppOpenAd(
-          // 2026-08-19 audit (Finding 4/6): this used to be bypassSafety:
-          // true, letting a resume-triggered App Open skip the daily/
-          // hourly/session cap entirely while still counting toward it via
-          // recordFullscreenAdShown() below — an asymmetric bypass outside
-          // the one case (splash) this repo's own contract allows. The
-          // resume-specific timing gates (canShowAppOpenOnResume above)
-          // still apply either way; this only restores the shared cap.
+          // Own placement: the splash's per-day cap must not block resumes.
+          // (Audit 2026-08-19: this used to be bypassSafety: true.)
+          placement: _resumeAppOpenPlacement,
           bypassSafety: false,
           onAdDismiss: (_) => unawaited(loadAppOpenAd()),
         ));
@@ -8448,13 +8444,9 @@ class AdManager with WidgetsBindingObserver {
           return;
         }
         unawaited(showAppOpenAd(
-          // 2026-08-19 audit (Finding 4/6): this used to be bypassSafety:
-          // true, letting a resume-triggered App Open skip the daily/
-          // hourly/session cap entirely while still counting toward it via
-          // recordFullscreenAdShown() below — an asymmetric bypass outside
-          // the one case (splash) this repo's own contract allows. The
-          // resume-specific timing gates (canShowAppOpenOnResume above)
-          // still apply either way; this only restores the shared cap.
+          // Own placement: the splash's per-day cap must not block resumes.
+          // (Audit 2026-08-19: this used to be bypassSafety: true.)
+          placement: _resumeAppOpenPlacement,
           bypassSafety: false,
           onAdDismiss: (_) => unawaited(loadAppOpenAd()),
         ));

@@ -5234,8 +5234,6 @@ void main() {
     // blocks every later resume App Open for the rest of the UTC day.
     testWidgets(
       'a per-day cap on the splash placement still lets a resume App Open show',
-      // Known gap, see T293: the resume path reuses AdPlacement.splash.
-      skip: true,
       (tester) async {
         final prefs = await AdPreferences.getInstance();
         await AdSafetyConfig.init(
@@ -5260,35 +5258,35 @@ void main() {
         adapter.appOpenSlot.beginLoad();
         adapter.appOpenSlot.markReady();
 
-        // The cold-start splash ad is shown (bypassSafety, as the contract says).
-        bool? splashDismissed;
-        await AdManager().showAppOpenAd(
-          bypassSafety: true,
-          onAdDismiss: (d) => splashDismissed = d,
-        );
-        expect(splashDismissed, isTrue, reason: 'precondition: splash shown');
+        // The cold-start splash ad was shown: its per-placement counter is
+        // spent. (Recorded directly: going through showAppOpenAd would also
+        // stamp the "dismissed an ad <5 s ago" resume guard, which is unrelated
+        // to what this test checks.)
+        AdSafetyConfig.recordPlacementAdShown(AdPlacement.splash);
+        await tester.pump();
         expect(
           AdSafetyConfig.placementDailyCapReached(AdPlacement.splash),
           isTrue,
           reason: 'precondition: the splash placement cap is spent',
         );
 
-        // Later, on resume, the SDK calls showAppOpenAd exactly like this
-        // (default placement, bypassSafety false). Calling it directly keeps
-        // the unrelated "dismissed an ad <5 s ago" resume guard out of the way.
+        // Later, on resume: the real path (cold-start skip, then the buffer and
+        // show). The unrelated "dismissed an ad <5 s ago" resume guard is kept
+        // out of the way by letting that window pass in the test's own clock.
         adapter.appOpenSlot.beginReload();
         adapter.appOpenSlot.markReady();
         final before = adapter.showAppOpenCalls;
-        bool? resumeDismissed;
-        await AdManager().showAppOpenAd(
-          bypassSafety: false,
-          onAdDismiss: (d) => resumeDismissed = d,
-        );
+        AdSafetyConfig.recordAppWentBackground();
+        AdManager().showAppOpenAdOnResume(); // consumes the cold-start skip
+        AdSafetyConfig.recordAppWentBackground();
+        AdManager().showAppOpenAdOnResume(); // reaches the buffer + show
+        await tester.pump(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump();
 
-        expect(resumeDismissed, isTrue,
+        expect(adapter.showAppOpenCalls, before + 1,
             reason: 'the resume App Open is a different surface from the '
                 'splash: the splash cap must not block it');
-        expect(adapter.showAppOpenCalls, before + 1);
         AdLoadingDialog.resetState();
       },
     );

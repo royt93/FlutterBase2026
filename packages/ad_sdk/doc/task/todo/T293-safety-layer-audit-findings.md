@@ -2,17 +2,17 @@
 
 - **Loại:** Hardening / quyết định sản phẩm
 - **Priority:** P2 · **Severity:** MEDIUM (chạm bảo vệ tài khoản AdMob và doanh thu)
-- **Status:** todo — CHỜ QUYẾT ĐỊNH. Chưa sửa gì trong file này.
+- **Status:** todo — điểm 5 đã sửa, các điểm 1, 3, 4, 6 CHỜ QUYẾT ĐỊNH.
 
 Audit chỉ-đọc ngày 2026-11-23. Điểm 2 (hộp thoại Loading rồi không có quảng cáo) đã sửa và có test đỏ-xanh. Các điểm dưới đây chưa sửa vì đều là đánh đổi giữa bảo vệ tài khoản và độ bền, hoặc đổi hành vi host nhìn thấy.
 
-## Điểm 5 — Resume App Open dùng placement `splash` (ĐÃ TÁI HIỆN, test đang `skip`)
+## Điểm 5 — Resume App Open dùng placement `splash` (ĐÃ SỬA 2026-11-24, chờ phát hành)
 
-`showAppOpenAd` mặc định `AdPlacement.splash`, và hai đường resume gọi nó không truyền placement. Khi host đặt `maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}` (đúng ví dụ trong README) thì quảng cáo splash dùng hết cap, và mọi App Open resume sau đó bị chặn tới hết ngày UTC với lý do `placement_cap`.
+Trước đây `showAppOpenAd` mặc định `AdPlacement.splash` và hai đường resume gọi nó không truyền placement, nên `maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}` (đúng ví dụ README) làm mọi App Open resume bị chặn tới hết ngày UTC.
 
-Test: `test/ad_manager_core_test.dart` → "a per-day cap on the splash placement still lets a resume App Open show" (đang `skip`; bỏ skip thì đỏ).
+Đã sửa: resume dùng placement riêng `AdPlacement.custom('app_open_resume')` ở hai lệnh gọi show và ở tra cứu override T181. Test đỏ trước, xanh sau: `test/ad_manager_core_test.dart` → "a per-day cap on the splash placement still lets a resume App Open show".
 
-Hướng sửa cần chọn: truyền một placement riêng cho resume (ví dụ `AdPlacement.custom('app_open_resume')`) ở hai chỗ gọi và ở `_placementMinIntervalOverride` (T181 cố ý dùng splash cho khớp). Tác dụng phụ: `AdShowEvent.placement` và doanh thu ghi theo placement mới; mọi override đặt theo `splash` trong `PlacementRegistry` sẽ không còn áp dụng cho resume. Ràng buộc: `ad_manager.dart` chỉ dư ~4 byte dưới trần dung lượng.
+Thay đổi host có thể thấy: `AdShowEvent.placement` và doanh thu của App Open resume giờ ghi `app_open_resume` thay vì `splash`; `PlacementRegistry` đặt cho `splash` không còn áp lên resume (host muốn thì đăng ký spec cho `app_open_resume`, `format: appOpen`).
 
 ## Điểm 1 — Đồng hồ nhảy tiến khóa cap ngày vĩnh viễn
 
