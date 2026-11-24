@@ -30,3 +30,6 @@ Một test tái hiện đỏ: mô phỏng click trên interstitial rồi đóng,
 - [ ] `tool/verify_adproof.dart` và `tool/incident_replay.dart` vẫn xác minh được các export cũ (không phá tương thích chữ ký).
 - [ ] `flutter analyze` sạch, `flutter test` xanh, gate size xanh.
 - [ ] CHANGELOG ghi rõ; nếu đổi định dạng bằng chứng thì cập nhật golden API.
+
+## Tái hiện 2026-11-24
+`test/t291_fullscreen_click_evidence_test.dart` dựng đúng chuỗi một phiên thật: cặp visible/dismissed của lần show #1 (t=1000), click giữa lần show #2 (t=63000), cặp của #2 chỉ ghi lúc đóng (t=70000). Kết quả: `clicked.interactionDurationMs = 62000`, đo từ `fullscreenVisible` của quảng cáo TRƯỚC. Thời lượng thật là 3000 ms (60000 → 63000) nhưng SDK không biết lúc hiện, vì native show*() chỉ báo một sự kiện lúc đóng. Test hiện khẳng định hành vi sai này (đặc tả hiện trạng); đổi khi có quyết định sản phẩm. CHƯA SỬA: cần chọn giữa (A) với click fullscreen ghi 0 = không biết, (B) ghi fullscreenVisible lúc gọi show.
