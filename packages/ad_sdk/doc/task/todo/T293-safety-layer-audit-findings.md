@@ -2,11 +2,11 @@
 
 - **Loại:** Hardening / quyết định sản phẩm
 - **Priority:** P2 · **Severity:** MEDIUM (chạm bảo vệ tài khoản AdMob và doanh thu)
-- **Status:** todo — điểm 5 đã sửa, các điểm 1, 3, 4, 6 CHỜ QUYẾT ĐỊNH.
+- **Status:** todo — điểm 2 và 5 đã sửa và phát hành (3.7.12); các điểm 1, 3, 4, 6 CHỜ QUYẾT ĐỊNH.
 
 Audit chỉ-đọc ngày 2026-11-23. Điểm 2 (hộp thoại Loading rồi không có quảng cáo) đã sửa và có test đỏ-xanh. Các điểm dưới đây chưa sửa vì đều là đánh đổi giữa bảo vệ tài khoản và độ bền, hoặc đổi hành vi host nhìn thấy.
 
-## Điểm 5 — Resume App Open dùng placement `splash` (ĐÃ SỬA 2026-11-24, chờ phát hành)
+## Điểm 5 — Resume App Open dùng placement `splash` (ĐÃ SỬA và ĐÃ PHÁT HÀNH trong 3.7.12, 2026-11-24)
 
 Trước đây `showAppOpenAd` mặc định `AdPlacement.splash` và hai đường resume gọi nó không truyền placement, nên `maxPerPlacementAdsPerDay: {AdPlacement.splash: 1}` (đúng ví dụ README) làm mọi App Open resume bị chặn tới hết ngày UTC.
 
