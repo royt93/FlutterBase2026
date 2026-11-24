@@ -712,6 +712,7 @@ class AdSafetyConfig {
       return const AdSafetyResult(false, 'formatDisabledRemotely');
     }
     final now = DateTime.now().millisecondsSinceEpoch;
+    _healBackwardClock(now);
 
     if (now < _suspiciousPauseUntil) {
       final remainingMs = _suspiciousPauseUntil - now;
@@ -901,6 +902,7 @@ class AdSafetyConfig {
   static AdSafetyResult _canShowAppOpenOnResumeStrict(
       {required bool recordSideEffects, int? minIntervalOverrideMs}) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    _healBackwardClock(now);
 
     // Fix #45: Respect minTimeBetweenFullscreenAds — prevents showing
     // App Open immediately after an interstitial/rewarded dismissal.
@@ -1337,6 +1339,27 @@ class AdSafetyConfig {
   /// this, a handful of old violations kept escalating the progressive
   /// cooldown exponent forever, since the only full reset was
   /// [resetForReinit] (rarely triggered in production).
+  /// Test seam: act as if the device clock moved back by [d] after ads showed.
+  @visibleForTesting
+  static void debugMoveClockBack(Duration d) {
+    if (_testSeamsBlocked) return _warnSeamBlocked('debugMoveClockBack');
+    final ms = d.inMilliseconds;
+    if (_lastFullscreenAdTime > 0) _lastFullscreenAdTime += ms;
+    for (var i = 0; i < _hourlyAdTimestamps.length; i++) {
+      _hourlyAdTimestamps[i] += ms;
+    }
+  }
+
+  /// T293 pt 6: a clock moved back leaves show times in the future, so the
+  /// throttle and hourly cap would hold until it catches up. Clamp to [now]:
+  /// they still hold from this moment, they are never lifted.
+  static void _healBackwardClock(int now) {
+    if (_lastFullscreenAdTime > now) _lastFullscreenAdTime = now;
+    for (var i = 0; i < _hourlyAdTimestamps.length; i++) {
+      if (_hourlyAdTimestamps[i] > now) _hourlyAdTimestamps[i] = now;
+    }
+  }
+
   /// T68 — test-only seam to simulate elapsed time since the last violation,
   /// so decay behaviour (otherwise only reachable by waiting real hours) can
   /// be exercised deterministically.
