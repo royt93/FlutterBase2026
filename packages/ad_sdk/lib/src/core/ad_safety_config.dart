@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import 'safety_state_store.dart';
 import '../adaptive/adaptive_frequency.dart';
 import '../state/ad_event.dart';
 import '../state/ad_placement.dart';
@@ -495,15 +496,43 @@ class AdSafetyConfig {
   // `isRelease` isn't `@visibleForTesting` here for the same barrel-export
   // reason covered in [applyDryRunReleaseGuard]'s doc comment above —
   // safety comes from `isActuallyRelease`, not the annotation.
+  static SafetyStateStore? _stateStore;
+
   static Future<void> init(
     AdPreferences prefs, {
     AdSafetyParams params = const AdSafetyParams(),
     bool isRelease = kReleaseMode,
+    SafetyStateStore? safetyStateStore,
   }) async {
     _prefs = prefs;
+    _stateStore = safetyStateStore ?? SafetyStateStore();
     params = applyDryRunReleaseGuard(params, isRelease: isRelease);
     _params = params;
     _suspiciousViolationCount = prefs.getSuspiciousCount();
+    // T293 — history that must outlive the process: without it the 24 h
+    // halving never ran across restarts, and force-stop cleared a pause.
+    // Awaited only when a store was injected (tests): the real Keystore read
+    // must never block start-up, so it is applied when it completes. A pause
+    // set in the meantime is kept (max with the saved one).
+    final load = _stateStore!.load(bounded: isRelease).then((saved) {
+      if (saved == null) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (saved.lastViolationAtMs > _lastViolationTimestamp) {
+        _lastViolationTimestamp = saved.lastViolationAtMs;
+      }
+      // A clock that jumped ahead must not park the SDK for longer than the
+      // longest pause it can ever set.
+      final until = saved.pauseUntilMs.clamp(0, now + _maxSuspiciousPause);
+      if (until > _suspiciousPauseUntil) _suspiciousPauseUntil = until;
+    });
+    // Released builds wait (bounded by SafetyStateStore.readTimeout) so a pause
+    // restored after a restart is in force before the first ad decision. Debug
+    // and test builds with no injected store (no platform channel there) do not.
+    if (safetyStateStore != null || isRelease) {
+      await load;
+    } else {
+      unawaited(load);
+    }
     _sessionStartTime = DateTime.now().millisecondsSinceEpoch;
     SafeLogger.d(
       _tag,
@@ -1224,7 +1253,8 @@ class AdSafetyConfig {
     _lastViolationTimestamp = 0;
     // The active pause is derived from the violation count above — leaving
     // it set here meant a reset session could still report suspended=true
-    // with 0 violations.
+    // with 0 violations. (T293: the persisted record is NOT cleared here, so
+    // the next `init` restores the pause; only a full erasure removes it.)
     _suspiciousPauseUntil = 0;
     // Round-7 audit, MAJOR — the PERSISTED counter deliberately survives.
     // This method runs from `resetForReinit()`, which is public, exported, and
@@ -1233,11 +1263,9 @@ class AdSafetyConfig {
     // that re-inits) used to wipe `setSuspiciousCount(0)` with it and so reset
     // the progressive cooldown escalation (30 min → 24 h) to zero every time.
     // M2 (round 6) closed that door on `resetSessionCounters()` and left this
-    // one open. Clearing the in-memory count and pause here is fine — a plain
-    // process restart already does exactly that, `_suspiciousPauseUntil` has
-    // never been persisted — but the escalation counter is the part a restart
-    // keeps, and it is what protects the publisher's AdMob account from an
-    // invalid-traffic strike. `initialize()` reads it straight back.
+    // one open. Clearing the in-memory count and pause here is fine: since T293
+    // the pause and the last violation time are persisted too, so
+    // `initialize()` reads them straight back along with the escalation count.
     SafeLogger.d(
         _tag, '🔄 Session reset (persisted invalid-traffic count preserved)');
     _refreshRiskScore();
@@ -1406,6 +1434,9 @@ class AdSafetyConfig {
     _suspiciousPauseUntil =
         DateTime.now().millisecondsSinceEpoch + pauseDuration;
     _lastViolationTimestamp = DateTime.now().millisecondsSinceEpoch;
+    unawaited(_stateStore?.save(
+        lastViolationAtMs: _lastViolationTimestamp,
+        pauseUntilMs: _suspiciousPauseUntil));
     SafeLogger.w(
       _tag,
       '⚠️ SUSPICIOUS: $reason | violation #$_suspiciousViolationCount '
@@ -1465,4 +1496,13 @@ class AdSafetyConfig {
   static void _refreshRiskScore() {
     policyRiskScore.value = _computeRiskScore();
   }
+}
+
+/// Erases the persisted invalid-traffic record on the store [AdSafetyConfig]
+/// loaded from (full erasure only). Top-level and unexported, so it stays out
+/// of the public API surface.
+Future<void> eraseSafetyStateForFullErasure() async {
+  AdSafetyConfig._lastViolationTimestamp = 0;
+  AdSafetyConfig._suspiciousPauseUntil = 0;
+  await AdSafetyConfig._stateStore?.erase();
 }

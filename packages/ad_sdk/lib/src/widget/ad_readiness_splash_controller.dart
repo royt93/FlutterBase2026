@@ -8,12 +8,11 @@ import '../core/event_bus.dart';
 import '../utils/safe_logger.dart';
 import 'ad_loading_dialog.dart';
 
-/// T94 — officialized version of the splash-screen orchestration the README
-/// documents by hand (subscribe-before-init, hard-cap timer,
-/// markSplashActive/Inactive, incrementSplashCount, buffered App Open with
-/// `bypassSafety: true`). Handles every ordering/race concern; your own
-/// splash screen still owns 100% of the UI — this only tells it WHEN it's
-/// safe to navigate away, via [onReady].
+/// T94 — the splash orchestration the README documents by hand
+/// (subscribe-before-init, hard-cap timer, markSplashActive/Inactive,
+/// incrementSplashCount, buffered App Open with `bypassSafety: true`). Your
+/// splash still owns the UI; this only says WHEN it is safe to leave, via
+/// [onReady].
 ///
 /// ```dart
 /// class _SplashScreenState extends State<SplashScreen> {
@@ -39,10 +38,9 @@ import 'ad_loading_dialog.dart';
 /// }
 /// ```
 ///
-/// This is a convenience wrapper, not a replacement for the manual flow —
-/// if your splash needs steps this doesn't cover (ATT prompt timing, a
-/// custom consent flow before `initialize()`, ...), write it by hand
-/// following the README's "Integrate the SDK" section instead.
+/// A convenience wrapper, not a replacement for the manual flow: for steps it
+/// doesn't cover (ATT timing, custom consent before `initialize()`), follow the
+/// README's "Integrate the SDK" section by hand.
 class AdReadinessSplashController {
   AdReadinessSplashController({
     required this.config,

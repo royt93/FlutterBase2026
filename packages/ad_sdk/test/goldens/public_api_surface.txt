@@ -401,7 +401,7 @@ AdSafetyConfig.getPolicyRiskScore  [method]  int getPolicyRiskScore()
 AdSafetyConfig.getSessionAdCount  [method]  int getSessionAdCount()
 AdSafetyConfig.getStatus  [method]  String getStatus()
 AdSafetyConfig.getStatusSnapshot  [method]  AdSafetySnapshot getStatusSnapshot()
-AdSafetyConfig.init  [method]  Future<void> init(AdPreferences prefs, {AdSafetyParams params = const AdSafetyParams(), bool isRelease = kReleaseMode})
+AdSafetyConfig.init  [method]  Future<void> init(AdPreferences prefs, {AdSafetyParams params = const AdSafetyParams(), bool isRelease = kReleaseMode, SafetyStateStore? safetyStateStore})
 AdSafetyConfig.isInvalidTrafficPauseActive  [getter]  bool get isInvalidTrafficPauseActive
 AdSafetyConfig.isNetworkFatigued  [method]  bool isNetworkFatigued(AdSlotType type)
 AdSafetyConfig.new  [constructor]  AdSafetyConfig AdSafetyConfig()
