@@ -74,3 +74,6 @@ Chuyển mốc `maxObservedDay` sang kho an toàn (khó sửa tay hơn `SharedPr
 - Điểm 1 (kẹp mốc ngày N=2) đã HOÀN TÁC (revert 3a3e556): review chỉ ra kẻ tua đồng hồ lùi >2 ngày reset được cap vì trần tính theo đồng hồ hiện tại. User chọn "không bao giờ hạ mốc". Mốc nhảy xa tương lai vẫn ghim như round-37; cần lối thoát khác nếu muốn xử lý.
 - Điểm 3, 4: Keystore thật (TECNO KJ7, 3 lần mở/kill): pause còn sau restart, `clearSdkData` xóa bản ghi, khởi động lại vẫn trống.
 - Sửa theo review: `clearSdkData` giờ cũng zero đếm vi phạm + risk score trong RAM, và xóa bản ghi ngay sau `prefs.clearSdkData` (trước các bước journal có thể throw).
+
+- Điểm 6 đã sửa (`_healBackwardClock`: kẹp thời điểm show/hourly về `now`, không bao giờ nâng cap). Test `backward_clock_fullscreen_test.dart`.
+- Mốc ngày sang kho mã hóa: user chọn BỎ. Kho fail-open nên root chỉ cần xóa bản ghi là reset; tốn size lib đang sát trần; không giải quyết lỗ hổng đồng hồ lùi >2 ngày.

@@ -34,14 +34,29 @@ Future<AdFlightRecorder> session() async {
 }
 
 void main() {
-  test('what the chain says today about a mid-ad click', () async {
+  test('a click inside a fullscreen ad records 0 (unknown), not a stale span',
+      () async {
     final r = await session();
     final clicked = r.entries.firstWhere((e) => e.label == 'clicked');
-    // ignore: avoid_print
-    print('T291 chain: ${r.entries.map((e) => '${e.label}@${e.timestampMs}').toList()} '
-        'clickDuration=${clicked.interactionDurationMs}');
-    expect(clicked.interactionDurationMs, 62000,
-        reason: 'measured from the PREVIOUS ad\'s visible entry (t=1000), '
-            'not from when this ad appeared (t=60000)');
+    expect(clicked.interactionDurationMs, 0,
+        reason: 'the previous ad\'s visible entry must not feed this click');
+  });
+
+  test('inline formats keep the measured duration', () async {
+    final r = AdFlightRecorder();
+    await r.record(
+        label: 'bannerVisible',
+        slotType: 'banner',
+        placement: 'p',
+        providerTag: '[Fake]',
+        timestampMs: 1000);
+    await r.record(
+        label: 'clicked',
+        slotType: 'banner',
+        placement: 'p',
+        providerTag: '[Fake]',
+        touchActive: true,
+        timestampMs: 1750);
+    expect(r.entries.last.interactionDurationMs, 750);
   });
 }

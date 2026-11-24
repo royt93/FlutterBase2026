@@ -563,6 +563,9 @@ class AdFlightRecorder {
 
   int _msSinceLastVisible(
       {required String slotType, required String placement, required int ts}) {
+    // T291: a fullscreen show's visible entry lands only at dismiss, so any
+    // earlier one belongs to the previous ad. Unknown is 0, not a stale span.
+    if (!const {'banner', 'mrec', 'native'}.contains(slotType)) return 0;
     for (var i = _entries.length - 1; i >= 0; i--) {
       final e = _entries[i];
       if (e.slotType == slotType &&

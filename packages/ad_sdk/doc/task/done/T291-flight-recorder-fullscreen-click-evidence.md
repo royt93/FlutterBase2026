@@ -33,3 +33,6 @@ Một test tái hiện đỏ: mô phỏng click trên interstitial rồi đóng,
 
 ## Tái hiện 2026-11-24
 `test/t291_fullscreen_click_evidence_test.dart` dựng đúng chuỗi một phiên thật: cặp visible/dismissed của lần show #1 (t=1000), click giữa lần show #2 (t=63000), cặp của #2 chỉ ghi lúc đóng (t=70000). Kết quả: `clicked.interactionDurationMs = 62000`, đo từ `fullscreenVisible` của quảng cáo TRƯỚC. Thời lượng thật là 3000 ms (60000 → 63000) nhưng SDK không biết lúc hiện, vì native show*() chỉ báo một sự kiện lúc đóng. Test hiện khẳng định hành vi sai này (đặc tả hiện trạng); đổi khi có quyết định sản phẩm. CHƯA SỬA: cần chọn giữa (A) với click fullscreen ghi 0 = không biết, (B) ghi fullscreenVisible lúc gọi show.
+
+## Hoàn thành 2026-11-24
+User chọn phương án A: click trên slot fullscreen ghi `interactionDurationMs = 0` (không biết) thay vì khoảng cách tới `fullscreenVisible` của quảng cáo trước. Banner/MREC/Native giữ nguyên số đo. Không đổi thứ tự chuỗi nên verify_adproof/incident_replay không bị ảnh hưởng. Test: `t291_fullscreen_click_evidence_test.dart`.

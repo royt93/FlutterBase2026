@@ -28,3 +28,6 @@ Chỉ làm khi có MỘT test tái hiện đỏ trên 3.7.9, ví dụ: một ban
 - [ ] Banner AdMob/AppLovin pass trên 2 thiết bị thật (S24U và Pixel 7 Pro): gắn trước init, gắn sau init, đè route trước/sau init.
 - [ ] `flutter analyze` sạch, `flutter test` xanh, gate size xanh (lib sát trần).
 - [ ] CHANGELOG ghi rõ; không đổi API public.
+
+## Quyết định 2026-11-24
+User chọn BỎ: chủ yếu AppLovin (ngoài phạm vi Android + AdMob), và task yêu cầu test đỏ trên 3.7.9 trước khi sửa lõi banner AdMob vừa phát hành. Mở lại khi có test đỏ.
