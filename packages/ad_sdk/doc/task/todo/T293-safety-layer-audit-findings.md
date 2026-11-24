@@ -2,7 +2,7 @@
 
 - **Loại:** Hardening / quyết định sản phẩm
 - **Priority:** P2 · **Severity:** MEDIUM (chạm bảo vệ tài khoản AdMob và doanh thu)
-- **Status:** todo — điểm 2 và 5 đã sửa và phát hành (3.7.12). Điểm 1, 3, 4: user đã chọn làm với kho an toàn mã hóa; THIẾT KẾ bên dưới chờ duyệt trước khi code. Điểm 6 vẫn chờ quyết định.
+- **Status:** điểm 2 và 5 đã phát hành (3.7.12). Điểm 1, 3, 4 ĐÃ CODE trên `main`, CHƯA phát hành (xem ghi chú cuối). Điểm 6 vẫn chờ quyết định.
 
 Audit chỉ-đọc ngày 2026-11-23. Điểm 2 (hộp thoại Loading rồi không có quảng cáo) đã sửa và có test đỏ-xanh. Các điểm dưới đây chưa sửa vì đều là đánh đổi giữa bảo vệ tài khoản và độ bền, hoặc đổi hành vi host nhìn thấy.
 
@@ -68,3 +68,10 @@ Chuyển mốc `maxObservedDay` sang kho an toàn (khó sửa tay hơn `SharedPr
 - [ ] Không làm yếu bảo vệ tài khoản: tua lùi đồng hồ vẫn không reset được cap (test round-37 vẫn xanh).
 - [ ] `flutter analyze` sạch, `flutter test` xanh, gate size xanh (mind: ~4 byte ở `ad_manager.dart`).
 - [ ] CHANGELOG ghi rõ.
+
+## Kết quả thực hiện điểm 1, 3, 4 (2026-11-24)
+
+- **Điểm 3 và 4 (commit `65ca7ce`):** lớp `SafetyStateStore` trong kho mã hóa, nạp lúc `AdSafetyConfig.init`, kẹp tạm dừng tối đa 24 giờ, fail-open. Sửa theo review độc lập: `erase` đi chung hàng đợi ghi và xóa cả trạng thái trong RAM; bản release chờ đọc tối đa 2 giây.
+- **Phạm vi xóa (commit `3b5b9e1`):** user đã ĐỔI quyết định từ "chỉ `allIncludingEntitlements`" sang "mọi phạm vi" (một yêu cầu xóa dữ liệu không được để lại dấu vết). Hệ quả đã chấp nhận: nút "xóa dữ liệu" mặc định của host cũng xóa được lệnh tạm dừng lưu lượng không hợp lệ, tức mở lại phần nào lỗ hổng điểm 4 qua đường xóa dữ liệu.
+- **Điểm 1:** mốc ngày chỉ được vượt ngày thật tối đa 2 ngày (`AdPreferences.maxClockAheadDays`); tua lùi đồng hồ vẫn không reset được cap. **KHÔNG làm:** chuyển mốc sang kho mã hóa như thiết kế, vì `ad_preferences.dart` hết chỗ dưới trần dung lượng; mốc vẫn ở SharedPreferences thường nên máy root sửa tay được.
+- **Điểm 6** (đồng hồ lùi chặn quảng cáo) chưa làm.
