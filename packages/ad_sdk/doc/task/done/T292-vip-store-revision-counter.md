@@ -56,3 +56,6 @@ Ràng buộc: `lib` đang đúng trần 2048KB (gate đo `du -k` theo từng fil
 - [ ] Giả mạo M6 vẫn bị kẹp 24 giờ (test M6 hiện có vẫn xanh), kể cả khi kẻ tấn công cố gán `revision` lớn.
 - [ ] Dữ liệu VIP cũ (không có `revision`) vẫn đọc được và không mất khóa nào.
 - [ ] `flutter analyze` sạch, `flutter test` xanh, gate size xanh, CHANGELOG ghi rõ.
+
+## Hoàn thành 2026-11-24
+Làm phương án A: `setRaw` khi ghi secure lỗi thì ghi fallback rồi `_secure.delete` bản cũ. Test `healed Keystore` bỏ skip và xanh; thêm test write+delete cùng lỗi vẫn trả fallback. 237 test VIP pass.

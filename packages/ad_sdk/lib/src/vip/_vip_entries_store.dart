@@ -176,6 +176,12 @@ class VipEntriesStore {
       // T71 — Keystore broken: fall back to AdPreferences (checksum-
       // prefixed) so a legitimate VIP grant isn't lost entirely.
       await _legacyPrefs.setVipEntriesFallbackRaw(json);
+      // T292: drop the older secure copy so a healed Keystore cannot hand it
+      // back over this newer one. If the delete fails too, the Keystore is
+      // still broken and getRaw() already prefers the fallback.
+      try {
+        await _secure.delete(key: _secureKey);
+      } catch (_) {/* see above */}
     }
   }
 

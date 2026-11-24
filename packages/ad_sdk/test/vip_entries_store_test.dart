@@ -227,12 +227,9 @@ void main() {
   // probe used to hand back the stale secure copy again.
   test(
     'a fallback newer than the secure copy survives a healed Keystore',
-    skip:
-        'known gap, see T292: needs a revision counter to tell a newer '
-        'fallback from an M6 forgery once the Keystore works again',
     () async {
       final storage = _MockSecureStorage();
-      var persisted = '[{"key":"OLD"}]';
+      String? persisted = '[{"key":"OLD"}]';
       var failWrites = false;
       String? probe;
       when(() => storage.read(key: any(named: 'key'))).thenAnswer(
@@ -252,9 +249,14 @@ void main() {
           probe = invocation.namedArguments[#value] as String;
         }
       });
-      when(
-        () => storage.delete(key: any(named: 'key')),
-      ).thenAnswer((_) async {});
+      when(() => storage.delete(key: any(named: 'key')))
+          .thenAnswer((inv) async {
+        if (inv.namedArguments[#key] == _secureKey) {
+          persisted = null;
+        } else {
+          probe = null;
+        }
+      });
       final store = VipEntriesStore(prefs, secureStorage: storage);
 
       failWrites = true;
@@ -270,6 +272,24 @@ void main() {
       );
     },
   );
+
+  test('write AND delete both failing still serves the newer fallback (T292)',
+      () async {
+    final storage = _MockSecureStorage();
+    when(() => storage.read(key: any(named: 'key')))
+        .thenAnswer((inv) async => inv.namedArguments[#key] == _secureKey
+            ? '[{"key":"OLD"}]'
+            : null);
+    when(() =>
+            storage.write(key: any(named: 'key'), value: any(named: 'value')))
+        .thenThrow(StateError('keystore write broken'));
+    when(() => storage.delete(key: any(named: 'key')))
+        .thenThrow(StateError('keystore delete broken'));
+    final store = VipEntriesStore(prefs, secureStorage: storage);
+
+    await store.setRaw('[{"key":"NEW"}]');
+    expect(await store.getRaw(), '[{"key":"NEW"}]');
+  });
 
   test('secure storage read() throwing fails open to null', () async {
     final storage = _MockSecureStorage();
