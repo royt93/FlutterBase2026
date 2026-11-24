@@ -1702,6 +1702,7 @@ class AdManager with WidgetsBindingObserver {
       scope: scope,
       confirmedEntitlementErasure: confirmedEntitlementErasure,
     );
+    await eraseSafetyStateForFullErasure(); // every scope (owner decision)
     // Reset live in-memory logs/monitors so an erased disk state is not
     // resurrected by the next event or exported from RAM after erasure.
     _providerFailoverAdvisor?.resetInMemoryState();
@@ -1719,7 +1720,6 @@ class AdManager with WidgetsBindingObserver {
         await prefs.clearConsentProvenanceJournal();
       }
     }
-    await eraseSafetyStateForFullErasure(); // every scope (owner decision)
     if (scope == SdkDataErasureScope.allIncludingEntitlements) {
       final vip = _vipManager;
       if (vip != null) {

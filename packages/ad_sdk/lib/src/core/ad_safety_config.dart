@@ -1504,5 +1504,8 @@ class AdSafetyConfig {
 Future<void> eraseSafetyStateForFullErasure() async {
   AdSafetyConfig._lastViolationTimestamp = 0;
   AdSafetyConfig._suspiciousPauseUntil = 0;
+  AdSafetyConfig._suspiciousViolationCount = 0;
+  AdSafetyConfig._scoreableViolationCount = 0;
+  AdSafetyConfig._refreshRiskScore();
   await AdSafetyConfig._stateStore?.erase();
 }

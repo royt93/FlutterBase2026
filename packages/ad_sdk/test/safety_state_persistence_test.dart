@@ -172,6 +172,16 @@ void main() {
       expect(store.raw, isNotNull, reason: 'precondition: a record is stored');
     }
 
+    test('erasure also zeroes the in-RAM violation count and risk score',
+        () async {
+      await trip();
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount,
+          greaterThan(0));
+      await AdManager().clearSdkData();
+      expect(AdSafetyConfig.getStatusSnapshot().suspiciousViolationCount, 0);
+      expect(AdSafetyConfig.policyRiskScore.value, 0);
+    });
+
     test('the default scope erases it too', () async {
       await trip();
       await AdManager().clearSdkData();
