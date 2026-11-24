@@ -4,9 +4,10 @@ All notable changes to `applovin_admob_sdk` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.7.13] - 2026-11-24
 
 - **Fixed (T293 points 3 and 4: invalid-traffic history survives a restart):** the last-violation time and the active invalid-traffic pause lived only in RAM. So the documented halving of the escalation count every 24 h never ran across restarts (a user tripping the gate once a week only ever went up), and force-stopping the app, or `destroy()` + `initialize()`, cleared an active pause. Both are now kept in one record in the encrypted store (Keystore/Keychain, same pattern as the redeemed-key ledger) and restored by `AdSafetyConfig.init`. A stored pause is capped at 24 h from now, so a clock that jumped far ahead cannot park the SDK for longer. Read and write errors are fail-open (no state, never throws); writes and the erase share one queue. Release builds wait up to 2 s for the read so the pause is in force before the first ad decision. **Erasure scope (decided by the owner, 2026-11-24):** `clearSdkData()` erases the record and the in-memory pause at EVERY scope, because a data-erasure request must leave no trace. The cost is accepted on purpose: a host "clear my data" button can therefore also clear an active invalid-traffic pause (an earlier version of this change kept it at the default scope for exactly that reason). The record holds a timestamp and a pause end, no identifier. **Public API:** `AdSafetyConfig.init` gained an optional `safetyStateStore` parameter (a test seam; the `SafetyStateStore` type is not exported). Red tests first (`test/safety_state_persistence_test.dart`). Trimmed 177 bytes of doc comment in `ad_readiness_splash_controller.dart` to stay under the 2048 KB `lib` size gate; no behaviour change.
+- **Fixed (review of the above):** `clearSdkData()` also zeroes the in-RAM violation count and `policyRiskScore` (they survived erasure), and the safety-state erase now runs right after the prefs clear, so a throw while clearing the journal cannot skip it. Verified on a real Keystore (TECNO KJ7): pause survives force-stop, `clearSdkData` removes the record.
 
 ## [3.7.12] - 2026-11-24
 
