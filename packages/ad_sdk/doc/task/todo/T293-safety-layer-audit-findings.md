@@ -68,3 +68,9 @@ Chuyển mốc `maxObservedDay` sang kho an toàn (khó sửa tay hơn `SharedPr
 - [ ] Không làm yếu bảo vệ tài khoản: tua lùi đồng hồ vẫn không reset được cap (test round-37 vẫn xanh).
 - [ ] `flutter analyze` sạch, `flutter test` xanh, gate size xanh (mind: ~4 byte ở `ad_manager.dart`).
 - [ ] CHANGELOG ghi rõ.
+
+## Cập nhật 2026-11-24 (đánh giá độc lập + máy thật)
+
+- Điểm 1 (kẹp mốc ngày N=2) đã HOÀN TÁC (revert 3a3e556): review chỉ ra kẻ tua đồng hồ lùi >2 ngày reset được cap vì trần tính theo đồng hồ hiện tại. User chọn "không bao giờ hạ mốc". Mốc nhảy xa tương lai vẫn ghim như round-37; cần lối thoát khác nếu muốn xử lý.
+- Điểm 3, 4: Keystore thật (TECNO KJ7, 3 lần mở/kill): pause còn sau restart, `clearSdkData` xóa bản ghi, khởi động lại vẫn trống.
+- Sửa theo review: `clearSdkData` giờ cũng zero đếm vi phạm + risk score trong RAM, và xóa bản ghi ngay sau `prefs.clearSdkData` (trước các bước journal có thể throw).
